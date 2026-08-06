@@ -1,0 +1,43 @@
+# Binaries and build output
+/bin/
+/out/
+/coverage.out
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go test binaries
+*.test
+
+# Go coverage / profiling
+*.out
+*.prof
+
+# Environment files
+# .env
+# .env.*
+# !.env.example
+
+# Editor / OS junk
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Local database / temporary files
+webauthn.db
+*.db
+*.sqlite
+*.sqlite3
+tmp/
+*.tmp
+
+# Local binaries / build artifacts
+webauthn-server
+cmd/myserver/myserver
+cmd/myserver/myserver.exe

@@ -1,14 +1,15 @@
 package api
 
 import (
-    "github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin"
 
-    "webauthn-server/internal/auth"
-    "webauthn-server/internal/api/middleware"
+	"webauthn-server/internal/api/middleware"
+	"webauthn-server/internal/auth"
+	"webauthn-server/internal/card"
 )
 
 // SetupRouter initializes Gin, applies middleware, and mounts routes
-func SetupRouter(authHandler *auth.AuthHandler, clientOrigin string, jwtSecret string) *gin.Engine {
+func SetupRouter(authHandler *auth.AuthHandler, cardHandler *card.CardHandler, clientOrigin string, jwtSecret string) *gin.Engine {
     router := gin.Default()
 
     // CORS
@@ -36,6 +37,13 @@ func SetupRouter(authHandler *auth.AuthHandler, clientOrigin string, jwtSecret s
                 protected.GET("/generate-additional-device-options", authHandler.GenerateAdditionalDeviceOptions)
                 protected.DELETE("/authenticator/:id", authHandler.DeleteAuthenticator)
                 protected.PUT("/authenticator/:id/nickname", authHandler.UpdateAuthenticatorNickname)
+                protected.POST("/logout", authHandler.Logout)
+
+                // Card routes
+                protected.GET("/cards", cardHandler.GetCards)
+                protected.POST("/cards", cardHandler.CreateCard)
+                protected.PUT("/cards/:id", cardHandler.UpdateCard)
+                protected.DELETE("/cards/:id", cardHandler.DeleteCard)
             }
         }
 
@@ -43,3 +51,11 @@ func SetupRouter(authHandler *auth.AuthHandler, clientOrigin string, jwtSecret s
 
     return router
 }
+
+                // adminOnly := protected.Group("")
+                // adminOnly.Use(middleware.RequireRoles("admin"))
+                // {
+                //     // Any routes put here will strictly require the "admin" role
+                //     // adminOnly.GET("/stats", cardHandler.GetSystemStats)
+                // }
+// Blacklist JWTs: If using JSON Web Tokens (JWT), add the logged-out token to a temporary Redis blacklist until its original expiry time passes.

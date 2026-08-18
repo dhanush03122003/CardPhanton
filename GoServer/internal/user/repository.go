@@ -77,4 +77,3 @@ func (r *SQLiteUserRepository) CreateUserWithID(ctx context.Context, id, usernam
     }
     return &User{ID: id, Username: username, CreatedAt: createdAt}, nil
 }
-

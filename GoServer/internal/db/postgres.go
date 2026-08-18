@@ -4,6 +4,8 @@ import (
     "context"
     "database/sql"
     "fmt"
+    "io/ioutil"
+    "path/filepath"
     "strings"
 
     "github.com/joho/godotenv"
@@ -49,53 +51,28 @@ func (db *DB) Pool() *sql.DB {
     return db.pool
 }
 
-// InitializeDatabase runs the migrations
+// InitializeDatabase runs the migrations from file
 func (db *DB) InitializeDatabase(ctx context.Context) error {
     if _, err := db.pool.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err != nil {
         return fmt.Errorf("failed to enable foreign keys: %w", err)
     }
 
-    statements := []string{
-        `CREATE TABLE IF NOT EXISTS users (
-            id TEXT PRIMARY KEY,
-            username TEXT UNIQUE NOT NULL,
-            created_at TIMESTAMP NOT NULL
-        )`,
-        `CREATE TABLE IF NOT EXISTS authenticators (
-            id TEXT PRIMARY KEY,
-            credential_id TEXT UNIQUE NOT NULL,
-            public_key BLOB NOT NULL,
-            counter INTEGER NOT NULL DEFAULT 0,
-            user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
-            transports TEXT,
-            aaguid TEXT,
-            device_type TEXT,
-            backed_up INTEGER,
-            attachment_type TEXT,
-            nickname TEXT,
-            last_used_at TIMESTAMP,
-            created_at TIMESTAMP NOT NULL
-        )`,
-        `CREATE TABLE IF NOT EXISTS audit_logs (
-            id TEXT PRIMARY KEY,
-            user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
-            credential_id TEXT NOT NULL,
-            ip_address TEXT,
-            location TEXT,
-            user_agent TEXT,
-            action_type TEXT,
-            login_time TIMESTAMP NOT NULL
-        )`,
-        `CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)`,
-        `CREATE INDEX IF NOT EXISTS idx_authenticators_user_id ON authenticators(user_id)`,
-        `CREATE INDEX IF NOT EXISTS idx_authenticators_credential_id ON authenticators(credential_id)`,
-        `CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id)`,
-        `CREATE INDEX IF NOT EXISTS idx_audit_logs_credential_id ON audit_logs(credential_id)`,
+    // Read migration file
+    migrationFile := filepath.Join("db", "migrations", "001_init.sql")
+    sqlContent, err := ioutil.ReadFile(migrationFile)
+    if err != nil {
+        return fmt.Errorf("failed to read migration file: %w", err)
     }
 
+    // Split by semicolon and execute each statement
+    statements := strings.Split(string(sqlContent), ";")
     for _, statement := range statements {
+        statement = strings.TrimSpace(statement)
+        if statement == "" || strings.HasPrefix(statement, "--") {
+            continue
+        }
         if _, err := db.pool.ExecContext(ctx, statement); err != nil {
-            return fmt.Errorf("failed to initialize database: %w", err)
+            return fmt.Errorf("failed to execute migration: %w", err)
         }
     }
 

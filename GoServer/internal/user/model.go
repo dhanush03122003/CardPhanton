@@ -8,5 +8,3 @@ type User struct {
     Username  string    `json:"username"`
     CreatedAt time.Time `json:"created_at"`
 }
-
-// User represents a user in the domain.

@@ -1,40 +1,55 @@
--- Database migrations for WebAuthn server
--- Updated for the Stateless Go server architecture
+-- Database migrations for WebAuthn server (SQLite)
 
--- Users table (current_challenge removed, challenge state is now in JWT)
+-- Users table
 CREATE TABLE IF NOT EXISTS users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    username VARCHAR(255) UNIQUE NOT NULL,
-    created_at TIMESTAMP DEFAULT timezone('Asia/Kolkata', now())
+    id TEXT PRIMARY KEY,
+    username TEXT UNIQUE NOT NULL,
+    created_at TIMESTAMP NOT NULL
 );
 
 -- Authenticators table
 CREATE TABLE IF NOT EXISTS authenticators (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id TEXT PRIMARY KEY,
     credential_id TEXT UNIQUE NOT NULL,
-    public_key BYTEA NOT NULL,
+    public_key BLOB NOT NULL,
     counter INTEGER NOT NULL DEFAULT 0,
-    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    transports TEXT[],
+    user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+    transports TEXT,
     aaguid TEXT,
     device_type TEXT,
-    backed_up BOOLEAN,
+    backed_up INTEGER,
     attachment_type TEXT,
-    nickname VARCHAR(255),
+    nickname TEXT,
     last_used_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT timezone('Asia/Kolkata', now())
+    created_at TIMESTAMP NOT NULL
 );
 
 -- Audit logs table
 CREATE TABLE IF NOT EXISTS audit_logs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    id TEXT PRIMARY KEY,
+    user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
     credential_id TEXT NOT NULL,
     ip_address TEXT,
     location TEXT,
     user_agent TEXT,
-    action_type VARCHAR(50),
-    login_time TIMESTAMP DEFAULT timezone('Asia/Kolkata', now())
+    action_type TEXT,
+    login_time TIMESTAMP NOT NULL
+);
+
+-- Cards table
+CREATE TABLE IF NOT EXISTS cards (
+    id TEXT PRIMARY KEY,
+    user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+    PAN TEXT UNIQUE NOT NULL,
+    cardholder_name TEXT NOT NULL,
+    bank_name TEXT NOT NULL,
+    payment_method_type TEXT NOT NULL,
+    card_brand TEXT NOT NULL,
+    exp_month INTEGER NOT NULL,
+    exp_year INTEGER NOT NULL,
+    cvv INTEGER NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL
 );
 
 -- Create indexes for better query performance
@@ -43,3 +58,4 @@ CREATE INDEX IF NOT EXISTS idx_authenticators_user_id ON authenticators(user_id)
 CREATE INDEX IF NOT EXISTS idx_authenticators_credential_id ON authenticators(credential_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_credential_id ON audit_logs(credential_id);
+CREATE INDEX IF NOT EXISTS idx_cards_user_id ON cards(user_id);

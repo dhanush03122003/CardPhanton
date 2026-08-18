@@ -10,7 +10,7 @@ import (
 
 // Repository defines audit persistence operations.
 type Repository interface {
-    LogAuthEvent(ctx context.Context, userID, credentialID, ipAddress, userAgent, location, actionType string) error
+    LogAuthEvent(ctx context.Context, userID, credentialID, ipAddress, userAgent, location string, actionType ActionType) error
 }
 
 // SQLiteRepository stores audit logs in SQLite.
@@ -24,7 +24,7 @@ func NewSQLiteRepository(pool *sql.DB) *SQLiteRepository {
 }
 
 // LogAuthEvent logs an authentication event and updates last_used_at when applicable.
-func (r *SQLiteRepository) LogAuthEvent(ctx context.Context, userID, credentialID, ipAddress, userAgent, location, actionType string) error {
+func (r *SQLiteRepository) LogAuthEvent(ctx context.Context, userID, credentialID, ipAddress, userAgent, location string, actionType ActionType) error {
     now := time.Now().UTC()
     _, err := r.pool.ExecContext(ctx, `
         INSERT INTO audit_logs (id, user_id, credential_id, ip_address, location, user_agent, action_type, login_time) 

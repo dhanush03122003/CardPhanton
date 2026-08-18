@@ -9,6 +9,7 @@ import (
 
     "webauthn-server/internal/auth"
     "webauthn-server/internal/audit"
+    "webauthn-server/internal/card"
     "webauthn-server/internal/config"
     "webauthn-server/internal/db"
     "webauthn-server/internal/api"
@@ -50,14 +51,21 @@ func main() {
     authRepo := auth.NewSQLiteRepository(database.Pool())
     userRepo := user.NewSQLiteUserRepository(database.Pool())
     auditRepo := audit.NewSQLiteRepository(database.Pool())
+    cardRepo := card.NewSQLiteCardRepository(database.Pool())
 
     authHandler, err := auth.NewAuthHandler(authRepo, userRepo, auditRepo, webAuthnService, cfg)
     if err != nil {
         log.Fatalf("Failed to initialize auth handler: %v", err)
     }
 
+    cardService := card.NewCardService(cardRepo, userRepo, auditRepo)
+	cardHandler := card.NewCardHandler(cardService, cfg)
+    if err != nil {
+        log.Fatalf("Failed to initialize card handler: %v", err)
+    }
+
     // Setup router via API package
-    router := api.SetupRouter(authHandler, cfg.ClientOrigin, cfg.JWTSecret)
+    router := api.SetupRouter(authHandler, cardHandler, cfg.ClientOrigin, cfg.JWTSecret)
 
     // Start server
     port := cfg.Port

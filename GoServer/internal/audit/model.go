@@ -13,3 +13,19 @@ type AuditLog struct {
     ActionType   string    `json:"action_type"`
     LoginTime    time.Time `json:"login_time"`
 }
+
+type ActionType string
+
+// 2. Define the enum constants
+const (
+	ActionTypeLogin        ActionType = "LOGIN"
+	ActionTypeRegister     ActionType = "CREATED"
+	ActionTypeDelete       ActionType = "DELETED"
+
+	ActionTypeAddCard      ActionType = "ADD CARD"
+	ActionTypeUPDATECard   ActionType = "MODIFY CARD"
+	ActionTypeDELETECard   ActionType = "DELETE CARD"
+
+	ActionTypePasskeyAdded    ActionType = "PASSKEY_ADDED"
+	ActionTypePasskeyDeleted  ActionType = "PASSKEY_DELETED"
+)

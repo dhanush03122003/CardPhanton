@@ -1,33 +1,35 @@
 package auth
 
 import (
-    "bytes"
-    "encoding/base64"
-    "encoding/json"
-    "fmt"
-    "log"
-    "net"
-    "net/http"
-    "strings"
-    "time"
+	"bytes"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net"
+	"net/http"
+	"strings"
+	"time"
 
-    "github.com/gin-gonic/gin"
-    "github.com/go-webauthn/webauthn/protocol"
-    "github.com/go-webauthn/webauthn/webauthn"
-    "github.com/golang-jwt/jwt/v5"
-    "github.com/google/uuid"
-    "github.com/oschwald/geoip2-golang"
+	"github.com/gin-gonic/gin"
+	"github.com/go-webauthn/webauthn/protocol"
+	"github.com/go-webauthn/webauthn/webauthn"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
+	"github.com/oschwald/geoip2-golang"
 
-    "webauthn-server/internal/audit"
-    "webauthn-server/internal/config"
-    "webauthn-server/internal/user"
+	"webauthn-server/internal/api/middleware"
+	"webauthn-server/internal/audit"
+	"webauthn-server/internal/config"
+	"webauthn-server/internal/user"
 )
 
 // TokenClaims is the JWT claims used for application tokens
+// Username is exposed to client, UserID is kept server-side
 type TokenClaims struct {
-    UserID   string `json:"userId"`
-    Username string `json:"username"`
-    jwt.RegisteredClaims
+	Username string `json:"username"`
+	UserID   string `json:"-"` // Server-side only, not exposed in token
+	jwt.RegisteredClaims
 }
 
 // AuthHandler handles WebAuthn authentication requests
@@ -93,7 +95,7 @@ func (h *AuthHandler) GenerateRegistrationOptions(c *gin.Context) {
         return
     }
 
-    err = h.saveWebAuthnSession(c, regData.Session)
+    err = middleware.SaveWebAuthnSession(c, regData.Session, string(h.jwtSecret))
     if err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save session cookie"})
         return
@@ -117,7 +119,7 @@ func (h *AuthHandler) VerifyRegistration(c *gin.Context) {
 
     ctx := c.Request.Context()
 
-    sessionData, err := h.getWebAuthnSession(c)
+    sessionData, err := middleware.GetWebAuthnSession(c, string(h.jwtSecret))
     if err != nil || sessionData == nil {
         c.JSON(http.StatusUnauthorized, gin.H{"error": "Session expired or missing. Please restart registration."})
         return
@@ -219,28 +221,31 @@ func (h *AuthHandler) VerifyRegistration(c *gin.Context) {
     location := h.getLocation(ip)
     userAgent := c.GetHeader("User-Agent")
 
-    _ = h.audit.LogAuthEvent(ctx, userIDStr, base64.RawURLEncoding.EncodeToString(credential.ID), ip, userAgent, location, "CREATED")
+    _ = h.audit.LogAuthEvent(ctx, userIDStr, base64.RawURLEncoding.EncodeToString(credential.ID), ip, userAgent, location, audit.ActionTypePasskeyAdded)
 
-    token := jwt.NewWithClaims(jwt.SigningMethodHS256, &TokenClaims{
-        UserID:   userIDStr,
-        Username: body.Username,
-        RegisteredClaims: jwt.RegisteredClaims{
-            IssuedAt:  jwt.NewNumericDate(time.Now()),
-            ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
-        },
-    })
+	// token := jwt.NewWithClaims(jwt.SigningMethodHS256, &TokenClaims{
+	// 	Username: body.Username,
+	// 	UserID:   userIDStr,
+	// 	RegisteredClaims: jwt.RegisteredClaims{
+	// 		IssuedAt:  jwt.NewNumericDate(time.Now()),
+	// 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+	// 	},
+	// })
 
-    tokenString, err := token.SignedString(h.jwtSecret)
-    if err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
-        return
-    }
+	// tokenString, err := token.SignedString(h.jwtSecret)
+	// if err != nil {
+	// 	c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+	// 	return
+	// }
 
-    c.JSON(http.StatusOK, gin.H{
-        "success": true,
-        "token":   tokenString,
-        "user":    gin.H{"id": userIDStr, "username": body.Username},
-    })
+	// Clear WebAuthn session and set auth cookie
+	c.SetCookie("webauthn_session", "", -1, "/", "", false, true)
+	// c.SetCookie("auth_token", tokenString, 86400, "/", "", false, true)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":  true,
+		"username":  body.Username,
+	})
 }
 
 // GenerateAuthenticationOptions handles GET /generate-authentication-options
@@ -286,7 +291,7 @@ func (h *AuthHandler) GenerateAuthenticationOptions(c *gin.Context) {
         return
     }
 
-    err = h.saveWebAuthnSession(c, loginData.Session)
+    err = middleware.SaveWebAuthnSession(c, loginData.Session, string(h.jwtSecret))
     if err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save session cookie"})
         return
@@ -309,7 +314,7 @@ func (h *AuthHandler) VerifyAuthentication(c *gin.Context) {
 
     ctx := c.Request.Context()
 
-    sessionData, err := h.getWebAuthnSession(c)
+    sessionData, err := middleware.GetWebAuthnSession(c, string(h.jwtSecret))
     if err != nil || sessionData == nil {
         c.JSON(http.StatusUnauthorized, gin.H{"error": "Session expired or missing. Please try again."})
         return
@@ -384,61 +389,83 @@ func (h *AuthHandler) VerifyAuthentication(c *gin.Context) {
     location := h.getLocation(ip)
     userAgent := c.GetHeader("User-Agent")
 
-    err = h.audit.LogAuthEvent(ctx, userRow.ID, credentialIDStr, ip, userAgent, location, "LOGIN")
+    err = h.audit.LogAuthEvent(ctx, userRow.ID, credentialIDStr, ip, userAgent, location, audit.ActionTypeLogin)
     if err != nil {
         log.Printf("Failed to log auth event: %v", err)
     }
 
     c.SetCookie("webauthn_session", "", -1, "/", "", false, true)
 
-    token := jwt.NewWithClaims(jwt.SigningMethodHS256, &TokenClaims{
-        UserID:   userRow.ID,
-        Username: userRow.Username,
-        RegisteredClaims: jwt.RegisteredClaims{
-            IssuedAt:  jwt.NewNumericDate(time.Now()),
-            ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
-        },
-    })
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, &TokenClaims{
+		Username: userRow.Username,
+		UserID:   userRow.ID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+		},
+	})
 
-    tokenString, err := token.SignedString(h.jwtSecret)
-    if err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
-        return
-    }
+	tokenString, err := token.SignedString(h.jwtSecret)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+		return
+	}
 
-    c.JSON(http.StatusOK, gin.H{
-        "success": true,
-        "token":   tokenString,
-        "user":    gin.H{"id": userRow.ID, "username": userRow.Username},
-    })
+	// Set token in cookie
+	c.SetCookie("auth_token", tokenString, h.cfg.AuthTokenExpiry, "/", "", true, true)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":  true,
+		"username": userRow.Username,
+	})
 }
 
 // GetUser handles GET /user - JWT protected
 func (h *AuthHandler) GetUser(c *gin.Context) {
-    userID := c.GetString("userId")
-    if userID == "" {
-        c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-        return
-    }
+	userID, err := h.getUserIDFromContext(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
 
-    ctx := c.Request.Context()
-    userRow, err := h.userRepo.FindUserByID(ctx, userID)
-    if err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-        return
-    }
-    if userRow == nil {
-        c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
-        return
-    }
+	ctx := c.Request.Context()
+	userRow, err := h.userRepo.FindUserByID(ctx, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if userRow == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
 
-    c.JSON(http.StatusOK, gin.H{"id": userRow.ID, "username": userRow.Username})
+	c.JSON(http.StatusOK, gin.H{"id": userRow.ID, "username": userRow.Username})
+}
+
+// getUserIDFromContext retrieves userId by looking up username from context
+func (h *AuthHandler) getUserIDFromContext(c *gin.Context) (string, error) {
+	username, exists := c.Get("username")
+	if !exists || username == "" {
+		return "", fmt.Errorf("username not found in context")
+	}
+
+	usernameStr, ok := username.(string)
+	if !ok {
+		return "", fmt.Errorf("invalid username type")
+	}
+
+	user, err := h.userRepo.FindUserByUsername(c.Request.Context(), usernameStr)
+	if err != nil || user == nil {
+		return "", fmt.Errorf("user not found")
+	}
+
+	return user.ID, nil
 }
 
 // GetAuthenticators handles GET /authenticators - JWT protected
 func (h *AuthHandler) GetAuthenticators(c *gin.Context) {
-    userID := c.GetString("userId")
-    if userID == "" {
+    userID, err := h.getUserIDFromContext(c)
+    if err != nil {
         c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
         return
     }
@@ -455,8 +482,8 @@ func (h *AuthHandler) GetAuthenticators(c *gin.Context) {
 
 // DeleteAuthenticator handles DELETE /authenticators/:id - JWT protected
 func (h *AuthHandler) DeleteAuthenticator(c *gin.Context) {
-    userID := c.GetString("userId")
-    if userID == "" {
+    userID, err := h.getUserIDFromContext(c)
+    if err != nil {
         c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
         return
     }
@@ -496,7 +523,7 @@ func (h *AuthHandler) DeleteAuthenticator(c *gin.Context) {
     if credentialID != "" {
         ip := c.ClientIP()
         userAgent := c.GetHeader("User-Agent")
-        _ = h.audit.LogAuthEvent(ctx, userID, credentialID, ip, userAgent, "Authenticator Deleted", "DELETED")
+        _ = h.audit.LogAuthEvent(ctx, userID, credentialID, ip, userAgent, "", audit.ActionTypePasskeyDeleted)
     }
 
     c.JSON(http.StatusOK, gin.H{"success": true})
@@ -504,8 +531,8 @@ func (h *AuthHandler) DeleteAuthenticator(c *gin.Context) {
 
 // UpdateAuthenticatorNickname handles PUT /authenticators/:id - JWT protected
 func (h *AuthHandler) UpdateAuthenticatorNickname(c *gin.Context) {
-    userID := c.GetString("userId")
-    if userID == "" {
+    userID, err := h.getUserIDFromContext(c)
+    if err != nil {
         c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
         return
     }
@@ -526,7 +553,7 @@ func (h *AuthHandler) UpdateAuthenticatorNickname(c *gin.Context) {
     }
 
     ctx := c.Request.Context()
-    err := h.repo.UpdateAuthenticatorNickname(ctx, authID, userID, body.Nickname)
+    err = h.repo.UpdateAuthenticatorNickname(ctx, authID, userID, body.Nickname)
     if err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
         return
@@ -537,8 +564,8 @@ func (h *AuthHandler) UpdateAuthenticatorNickname(c *gin.Context) {
 
 // GetMe handles GET /me - JWT protected
 func (h *AuthHandler) GetMe(c *gin.Context) {
-    userID := c.GetString("userId")
-    if userID == "" {
+    userID, err := h.getUserIDFromContext(c)
+    if err != nil {
         c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
         return
     }
@@ -601,8 +628,8 @@ func (h *AuthHandler) GetMe(c *gin.Context) {
 
 // GenerateAdditionalDeviceOptions handles GET /generate-additional-device-options - JWT protected
 func (h *AuthHandler) GenerateAdditionalDeviceOptions(c *gin.Context) {
-    userID := c.GetString("userId")
-    if userID == "" {
+    userID, err := h.getUserIDFromContext(c)
+    if err != nil {
         c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
         return
     }
@@ -628,7 +655,7 @@ func (h *AuthHandler) GenerateAdditionalDeviceOptions(c *gin.Context) {
         return
     }
 
-    err = h.saveWebAuthnSession(c, regData.Session)
+    err = middleware.SaveWebAuthnSession(c, regData.Session, string(h.jwtSecret))
     if err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save session cookie"})
         return
@@ -679,7 +706,7 @@ func (h *AuthHandler) GenerateConditionalOptions(c *gin.Context) {
         return
     }
 
-    err = h.saveWebAuthnSession(c, loginData.Session)
+    err = middleware.SaveWebAuthnSession(c, loginData.Session, string(h.jwtSecret))
     if err != nil {
         c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save session cookie"})
         return
@@ -723,56 +750,16 @@ func (h *AuthHandler) getLocation(ip string) string {
     return "Unknown Location"
 }
 
-// saveWebAuthnSession stores WebAuthn session data in a JWT cookie
-func (h *AuthHandler) saveWebAuthnSession(c *gin.Context, session webauthn.SessionData) error {
-    sessionJSON, err := json.Marshal(session)
-    if err != nil {
-        return err
-    }
+// Logout handles POST /logout - clears authentication cookies
+func (h *AuthHandler) Logout(c *gin.Context) {
+	// Clear the auth token cookie
+	c.SetCookie("auth_token", "", -1, "/", "", true, true)
 
-    claims := SessionClaims{
-        SessionData: string(sessionJSON),
-        RegisteredClaims: jwt.RegisteredClaims{
-            ExpiresAt: jwt.NewNumericDate(time.Now().Add(5 * time.Minute)),
-            IssuedAt:  jwt.NewNumericDate(time.Now()),
-        },
-    }
+	// Clear the WebAuthn session cookie
+	c.SetCookie("webauthn_session", "", -1, "/", "", true, true)
 
-    token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-    tokenString, err := token.SignedString(h.jwtSecret)
-    if err != nil {
-        return err
-    }
-
-    c.SetCookie("webauthn_session", tokenString, 300, "/", "", false, true)
-    return nil
-}
-
-// getWebAuthnSession reads WebAuthn session data from the JWT cookie
-func (h *AuthHandler) getWebAuthnSession(c *gin.Context) (*webauthn.SessionData, error) {
-    cookie, err := c.Cookie("webauthn_session")
-    if err != nil {
-        return nil, err
-    }
-
-    token, err := jwt.ParseWithClaims(cookie, &SessionClaims{}, func(token *jwt.Token) (interface{}, error) {
-        return h.jwtSecret, nil
-    })
-
-    if err != nil || !token.Valid {
-        return nil, fmt.Errorf("invalid or expired session token")
-    }
-
-    claims, ok := token.Claims.(*SessionClaims)
-    if !ok {
-        return nil, fmt.Errorf("invalid token claims")
-    }
-
-    var sessionData webauthn.SessionData
-    err = json.Unmarshal([]byte(claims.SessionData), &sessionData)
-    if err != nil {
-        return nil, err
-    }
-
-    return &sessionData, nil
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "logged out successfully",
+	})
 }

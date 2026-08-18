@@ -1,0 +1,27 @@
+# Flutter and Dart
+.dart_tool/
+.packages
+.pub/
+build/
+
+# Generated code
+*.g.dart
+*.freezed.dart
+
+# Flutter tooling
+.flutter-plugins
+.flutter-plugins-dependencies
+.flutter-versions
+.metadata
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+
+# Environment files
+.env
+.env.*
+!.env.example

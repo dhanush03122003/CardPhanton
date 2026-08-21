@@ -1,61 +1,63 @@
 import 'package:dio/dio.dart';
+import 'package:dio/browser.dart';
 
 class ApiClient {
-  ApiClient(this._dio);
+  ApiClient(this._dio) {
+    _dio.options = BaseOptions(
+      baseUrl: 'http://localhost:8080/api',
+      connectTimeout: const Duration(seconds: 15),
+      receiveTimeout: const Duration(seconds: 15),
+      sendTimeout: const Duration(seconds: 15),
+      headers: <String, dynamic>{
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+    );
+
+    _dio.httpClientAdapter = BrowserHttpClientAdapter(
+      withCredentials: false,
+    );
+  }
 
   final Dio _dio;
 
   Future<Response<dynamic>> get(
     String path, {
     Map<String, dynamic>? queryParameters,
-    Options? options,
   }) {
-    return _dio.get<dynamic>(
+    return _dio.get(
       path,
       queryParameters: queryParameters,
-      options: options,
     );
   }
 
   Future<Response<dynamic>> post(
     String path, {
-    Object? data,
-    Map<String, dynamic>? queryParameters,
-    Options? options,
+    dynamic data,
   }) {
-    return _dio.post<dynamic>(
+    return _dio.post(
       path,
       data: data,
-      queryParameters: queryParameters,
-      options: options,
     );
   }
 
   Future<Response<dynamic>> put(
     String path, {
-    Object? data,
-    Map<String, dynamic>? queryParameters,
-    Options? options,
+    dynamic data,
   }) {
-    return _dio.put<dynamic>(
+    return _dio.put(
       path,
       data: data,
-      queryParameters: queryParameters,
-      options: options,
     );
   }
 
   Future<Response<dynamic>> delete(
     String path, {
-    Object? data,
-    Map<String, dynamic>? queryParameters,
-    Options? options,
+    dynamic data,
   }) {
-    return _dio.delete<dynamic>(
+    return _dio.delete(
       path,
       data: data,
-      queryParameters: queryParameters,
-      options: options,
     );
   }
 }

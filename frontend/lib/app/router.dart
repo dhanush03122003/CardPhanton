@@ -12,10 +12,6 @@ import '../features/settings/presentation/pages/settings_page.dart';
 import 'session.dart';
 import 'router_paths.dart';
 
-final authSessionProvider = ChangeNotifierProvider<AuthSession>((ref) {
-  return AuthSession();
-});
-
 final appRouterProvider = Provider<GoRouter>((ref) {
   final authSession = ref.watch(authSessionProvider);
 
@@ -25,7 +21,20 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: RouterPaths.login,
         name: 'login',
-        builder: (context, state) => const AuthPage(),
+        builder: (context, state) {
+          return AuthPage(
+            mode: AuthMode.login,
+            initialUsername: state.uri.queryParameters['username'],
+            registrationSuccess: state.uri.queryParameters['registered'] == '1',
+          );
+        },
+      ),
+      GoRoute(
+        path: RouterPaths.register,
+        name: 'register',
+        builder: (context, state) {
+          return const AuthPage(mode: AuthMode.register);
+        },
       ),
       ShellRoute(
         builder: (context, state, child) => child,
@@ -72,13 +81,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     ],
     redirect: (context, state) {
       final isLoggingIn = state.matchedLocation == RouterPaths.login;
+      final isRegistering = state.matchedLocation == RouterPaths.register;
       final isAuthed = authSession.isAuthenticated;
+      final isAuthRoute = isLoggingIn || isRegistering;
 
-      if (!isAuthed && !isLoggingIn) {
+      if (!isAuthed && !isAuthRoute) {
         return RouterPaths.login;
       }
 
-      if (isAuthed && isLoggingIn) {
+      if (isAuthed && isAuthRoute) {
         return RouterPaths.dashboard;
       }
 

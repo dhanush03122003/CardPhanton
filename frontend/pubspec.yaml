@@ -19,6 +19,8 @@ dependencies:
 
   # Networking
   dio: ^5.9.0
+  js: ^0.6.7
+  web_authn_web: ^0.0.5
 
   # Local Storage
   flutter_secure_storage: ^9.2.4

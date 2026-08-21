@@ -11,6 +11,7 @@ import 'interceptors/error_interceptor.dart';
 import 'interceptors/logging_interceptor.dart';
 import 'interceptors/retry_interceptor.dart';
 import 'token_refresh_service.dart';
+import 'web_dio_adapter.dart';
 
 final flutterSecureStorageProvider = Provider<FlutterSecureStorage>((ref) {
   return const FlutterSecureStorage();
@@ -52,6 +53,8 @@ final dioProvider = Provider<Dio>((ref) {
       responseType: ResponseType.json,
     ),
   );
+
+  configureBrowserCredentials(dio);
 
   dio.interceptors.addAll(<Interceptor>[
     AuthInterceptor(

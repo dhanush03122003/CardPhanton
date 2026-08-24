@@ -1,5 +1,7 @@
-import '../entities/auth_entity.dart';
+import '../entities/user.dart';
 
 abstract interface class AuthRepository {
-  Future<AuthEntity> fetch();
+  Future<User> login(String username);
+  Future<User> register(String username);
+  Future<User> getCurrentUser();
 }

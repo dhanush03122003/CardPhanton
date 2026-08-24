@@ -1,186 +1,195 @@
-# CardPhanton Frontend
+# CardPhanton — Frontend
 
-Flutter Web frontend for CardPhanton. This codebase is intentionally lean and production-focused: it uses a small folder structure now, and it can grow module by module when the app needs it.
+Flutter Web client for CardPhanton, using passwordless authentication via
+WebAuthn (passkeys) against a session-cookie-backed backend.
 
-## 1. Project Architecture
+## Tech stack
 
-This project follows Feature First + Clean Architecture.
+| Concern            | Package                          |
+|---------------------|-----------------------------------|
+| State management    | `flutter_riverpod`                |
+| Routing             | `go_router`                       |
+| HTTP client         | `dio`                             |
+| WebAuthn (passkeys) | `web_authn_web`                   |
+| Local persistence   | `shared_preferences`              |
 
-- Feature First keeps each business area isolated.
-- Clean Architecture keeps domain logic independent from Flutter and from the data layer.
-- Riverpod manages state and dependency injection.
-- go_router handles auth redirects, nested routes, and role-based routing.
-- Dio handles API calls, interceptors, auth headers, logging, and error mapping.
+**Platform:** Flutter Web only (the auth flow depends on the browser's
+WebAuthn API via `web_authn_web`).
 
-### Current structure
+---
 
-```txt
+## Getting started
+
+### Prerequisites
+
+- Flutter SDK (stable channel) — check the version pinned in `pubspec.yaml`
+- A running instance of the CardPhanton backend (WebAuthn relying party +
+  session store), reachable at the URL configured in `lib/app/env.dart`
+- A Chromium-based browser for local development (`flutter run -d chrome`)
+- WebAuthn requires a **secure context**: `localhost` works for local dev;
+  anywhere else needs HTTPS
+
+### Install dependencies
+
+```bash
+flutter pub get
+```
+
+### Configure environment
+
+API base URL and other environment values live in `lib/app/env.dart`.
+Confirm `apiBaseUrl` points at your backend (defaults to
+`http://localhost:8080` for local development) and that the backend's CORS
+config allows credentials from your frontend's origin — the app sends
+`withCredentials: true` on every request since auth relies on an httpOnly
+session cookie, not a bearer token.
+
+### Run locally
+
+```bash
+flutter run -d chrome
+```
+
+### Build for production
+
+```bash
+flutter build web
+```
+
+Output is written to `build/web/`; serve it from any static host / reverse
+proxy that sits on the same effective domain as your backend's configured
+Relying Party ID (WebAuthn ties credentials to `rp.id`, so frontend and
+backend must agree on the domain).
+
+---
+
+## Project structure
+
+This project follows a **feature-first, layered (clean) architecture**.
+Each feature under `lib/features/` is internally split into three layers,
+and cross-cutting concerns live under `lib/core/`.
+
+```
 lib/
-├── app/
+├── app/                  # App shell: routing, theming, env config, session bootstrap
 │   ├── app.dart
 │   ├── env.dart
 │   ├── router.dart
 │   ├── router_paths.dart
 │   ├── session.dart
 │   └── theme.dart
-├── core/
-│   ├── api/
-│   ├── constants/
-│   ├── errors/
-│   ├── exceptions/
-│   ├── extensions/
-│   ├── logger/
-│   ├── network/
-│   ├── services/
-│   ├── theme/
-│   ├── utils/
-│   ├── validators/
-│   └── widgets/
+│
+├── core/                 # Shared, feature-agnostic building blocks
+│   ├── constants/        # App-wide constant values
+│   ├── errors/           # Centralized error messages + exception → message mappers
+│   ├── logger/           # Logging abstraction (use instead of raw print())
+│   ├── network/          # Dio client setup (base URL, timeouts, credentials)
+│   ├── services/         # Cross-feature services (e.g. platform integrations)
+│   ├── utils/             # Small stateless helper functions
+│   ├── validators/       # Reusable form-field validators
+│   └── widgets/          # Shared, generic UI components (not feature-specific)
+│
 ├── features/
-│   ├── auth/
-│   ├── cards/
-│   ├── admin/
-│   ├── dashboard/
-│   ├── profile/
-│   ├── gmail/
-│   ├── notifications/
-│   └── settings/
+│   └── <feature_name>/
+│       ├── data/
+│       │   ├── datasources/    # Raw API calls (Dio), no business logic
+│       │   ├── mappers/        # JSON ⇄ typed-object conversion, isolated from repositories
+│       │   ├── models/         # DTOs — extend domain entities, add fromJson/toJson
+│       │   └── repositories/   # Implements the domain repository interface;
+│       │                       # orchestrates datasources + mappers
+│       ├── domain/
+│       │   ├── entities/       # Plain business objects, no serialization logic
+│       │   ├── repositories/   # Abstract interfaces — data layer depends on these,
+│       │   │                   # not the other way around
+│       │   └── usecases/       # One class per user action (Login, Register, ...);
+│       │                       # thin wrappers around a repository call
+│       └── presentation/
+│           ├── pages/          # Screens — composition only, minimal logic
+│           ├── providers/      # Riverpod providers + state notifiers for this feature
+│           └── widgets/        # Widgets shared *within* this feature only
+│
 └── main.dart
 ```
 
-## 2. Folder Responsibilities
+### Why this structure
 
-### app/
+- **`domain/` has no Flutter or Dio imports.** It's pure Dart — entities and
+  interfaces — so business rules are testable without mocking the framework.
+- **`data/` depends on `domain/`, never the reverse.** Repositories implement
+  the interfaces domain defines; swapping WebAuthn/Dio for something else
+  later only touches this layer.
+- **`presentation/` talks to `domain/` usecases, not `data/` directly.**
+  Pages and providers never import a datasource or repository implementation.
+- **Mappers are separated from repositories.** Anything that converts
+  between raw JSON/SDK objects and typed Dart classes lives in
+  `data/mappers/`, keeping repository classes focused on *orchestrating* a
+  flow (call datasource → map → call SDK → map → return) rather than doing
+  the marshalling inline.
+- **Error messages are centralized**, not scattered as string literals
+  across controllers. `core/errors/error_messages.dart` holds the copy;
+  `core/errors/auth_error_mapper.dart` (and equivalents per feature, if
+  needed) turns exceptions into one of those messages, and always logs the
+  raw error first so failures are never silently swallowed.
 
-Application-level wiring only:
+---
 
-- app bootstrap
-- router and route paths
-- app environment config
-- app-level session state
-- app theme setup
+## Authentication flow
 
-### core/
+Auth is passwordless, backed by WebAuthn (passkeys) and an httpOnly session
+cookie — **there is no bearer token stored client-side.**
 
-Cross-feature foundation used everywhere:
+1. **Register/Login options** — the client asks the backend for a WebAuthn
+   challenge (`generate-registration-options` / `generate-authentication-options`).
+   The backend also sets a short-lived session cookie carrying that challenge.
+2. **Browser ceremony** — `web_authn_web` calls the browser's native
+   WebAuthn API (fingerprint / face / security key prompt).
+3. **Verification** — the resulting credential is posted back
+   (`verify-registration` / `verify-authentication`). The backend validates
+   it against the session cookie's challenge and, on success, upgrades the
+   session cookie to an authenticated one.
+4. **Session state** — the frontend never sees a token. On success it just
+   stores the returned `User` in memory (`AuthController` / Riverpod state).
+   On app startup, `AuthController.restoreSession()` calls a "who am I"
+   endpoint (`GET /api/auth/me`) that reads the session cookie server-side;
+   this is what allows a page refresh to stay logged in.
+5. **Logout** clears local state; if the backend exposes a logout route to
+   invalidate the cookie server-side, that should be called too.
 
-- `api/`: shared API client wrapper and providers
-- `network/`: Dio setup, interceptors, and token refresh placeholder
-- `errors/`: failure types and `Result<T>`
-- `exceptions/`: exception classes
-- `constants/`: storage keys and other shared constants
-- `extensions/`: reusable extensions
-- `logger/`: logging helpers
-- `services/`: secure storage and preferences services
-- `theme/`: design tokens and theme extensions
-- `utils/`: general helpers
-- `validators/`: shared form validation rules
-- `widgets/`: reusable design-system widgets
+### Route protection
 
-### features/
+`/homepage` (and any other authenticated route) is guarded at the **router**
+level via `GoRouter.redirect`, not inside the page itself — this ensures
+direct URL access, refreshes, and back-navigation are all covered by the
+same check, not just in-app navigation. See `lib/app/router.dart`.
 
-One folder per feature, each split into:
+---
 
-- `data/`: DTOs, datasources, repository implementations
-- `domain/`: entities, repository contracts, use cases
-- `presentation/`: pages, widgets, Riverpod providers
+## Code conventions
 
-## 3. What Is In Place Today
+- No raw `print()` in shipped code — use the logger under `core/logger/`.
+- No user-facing string literals inline in controllers/widgets — add them to
+  the relevant `core/errors/error_messages.dart` (or feature-local
+  equivalent) so copy changes don't require touching logic.
+- Keep `data/repositories/*_impl.dart` files to orchestration only; if a
+  method is doing JSON parsing or SDK-object construction inline, it belongs
+  in a `data/mappers/` file instead.
+- Shared widgets used by more than one page *within a feature* go in that
+  feature's `presentation/widgets/`; widgets shared *across features* go in
+  `core/widgets/`.
+- Form validation logic goes in `core/validators/`, not inline in a page's
+  `onPressed` handler.
 
-- A Flutter Web app shell in `frontend/`
-- Riverpod setup for state and DI
-- go_router with auth and role-based redirects
-- Dio with storage, logging, error, auth, and retry placeholders
-- Token-based theming with light and dark support
-- Shared validators, error types, and reusable widgets
-- Feature skeletons for auth, cards, admin, dashboard, profile, gmail, notifications, and settings
-- A small app-level session model in `lib/app/session.dart` instead of a separate shared layer
+---
 
-## 4. Rules To Follow
+## Troubleshooting
 
-- Keep feature code inside its feature folder.
-- Do not let DTOs leak into UI.
-- Keep UI composition-based and small.
-- Keep reusable cross-feature code in `core/`.
-- Keep route constants centralized.
-- Keep auth/session state at the app level, not spread across features.
-- Keep secrets out of source control.
-- Use secure storage for JWT and refresh tokens.
-- Use shared preferences for theme and user preferences.
-- Keep the app responsive and mobile-web first.
-- Do not hardcode colors, spacing, or radius in widgets.
-- Prefer immutable models and explicit types.
-
-## 5. How To Extend When The App Grows
-
-### When a feature becomes real
-
-Add files only inside that feature:
-
-- `data/models/`
-- `data/datasources/`
-- `data/repositories/`
-- `domain/entities/`
-- `domain/repositories/`
-- `domain/usecases/`
-- `presentation/pages/`
-- `presentation/widgets/`
-- `presentation/providers/`
-
-### When shared code becomes necessary
-
-Add to `core/` only if many features need it:
-
-- networking helpers
-- failure/result handling
-- common widgets
-- validators
-- utilities
-- services
-- theme tokens
-
-### When routing becomes larger
-
-- Keep login, protected, and admin routes separated.
-- Split route groups only when the router gets hard to read.
-- Keep route paths centralized.
-
-### When design system grows
-
-- Put reusable widgets in `core/widgets`.
-- Keep feature-specific widgets inside the feature.
-- Introduce more theme tokens only when needed.
-
-## 6. Commands
-
-Run these from `frontend/`:
-
-```bash
-flutter pub get
-dart run build_runner build --delete-conflicting-outputs
-flutter analyze
-flutter test
-flutter run -d chrome --web-port 5500
-flutter build web --release
-```
-
-If web support is missing on a new machine:
-
-```bash
-flutter config --enable-web
-flutter create --platforms web .
-```
-
-## 7. Future Extension Map
-
-If the app grows, extend it in this order:
-
-1. Add more files inside an existing feature.
-2. Add a new feature folder under `features/`.
-3. Add shared helpers in `core/` only when multiple features need them.
-4. Split router logic only when route count becomes hard to manage.
-5. Introduce more design tokens only when the UI system needs it.
-
-## 8. Short Production Rule
-
-Keep the structure small now, keep the boundaries strict, and only expand folders when real app growth justifies it.
+- **WebAuthn errors ("not allowed", "security error")**: confirm you're on
+  `localhost` or HTTPS, and that `rp.id` returned by the backend matches the
+  frontend's actual domain.
+- **CORS / cookie not being sent**: confirm the backend's CORS config
+  includes `Access-Control-Allow-Credentials: true` and an explicit (not
+  wildcard) `Access-Control-Allow-Origin` matching the frontend's origin.
+- **Stuck on login page after a successful passkey prompt**: check the
+  browser console — auth failures are logged via `AuthErrorMapper.map()`
+  before being converted to a user-facing message, so the raw exception is
+  always visible there.

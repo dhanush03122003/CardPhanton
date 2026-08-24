@@ -1,93 +1,62 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../features/admin/presentation/pages/admin_page.dart';
-import '../features/auth/presentation/pages/auth_page.dart';
-import '../features/cards/presentation/pages/cards_page.dart';
-import '../features/dashboard/presentation/pages/dashboard_page.dart';
-import '../features/gmail/presentation/pages/gmail_page.dart';
-import '../features/notifications/presentation/pages/notifications_page.dart';
-import '../features/profile/presentation/pages/profile_page.dart';
-import '../features/settings/presentation/pages/settings_page.dart';
-import 'session.dart';
+import '../features/auth/presentation/pages/login_page.dart';
+import '../features/auth/presentation/pages/register_page.dart';
+import '../features/auth/presentation/providers/auth_providers.dart';
+import '../features/home/presentation/pages/home_page.dart';
 import 'router_paths.dart';
 
-final authSessionProvider = ChangeNotifierProvider<AuthSession>((ref) {
-  return AuthSession();
-});
+/// Bridges Riverpod's [authControllerProvider] into a [Listenable] so
+/// go_router re-evaluates its `redirect` callback whenever auth state
+/// changes (login, logout, session restore) — not just on navigation.
+class _AuthRefreshListenable extends ChangeNotifier {
+  _AuthRefreshListenable(Ref ref) {
+    ref.listen(authControllerProvider, (_, __) => notifyListeners());
+  }
+}
 
-final appRouterProvider = Provider<GoRouter>((ref) {
-  final authSession = ref.watch(authSessionProvider);
+/// The app's router. Read via `ref.watch(routerProvider)` from the widget
+/// that builds `MaterialApp.router` (see `app.dart`).
+final routerProvider = Provider<GoRouter>((ref) {
+  final refreshListenable = _AuthRefreshListenable(ref);
+  ref.onDispose(refreshListenable.dispose);
 
   return GoRouter(
     initialLocation: RouterPaths.login,
-    routes: <RouteBase>[
-      GoRoute(
-        path: RouterPaths.login,
-        name: 'login',
-        builder: (context, state) => const AuthPage(),
-      ),
-      ShellRoute(
-        builder: (context, state, child) => child,
-        routes: <RouteBase>[
-          GoRoute(
-            path: RouterPaths.dashboard,
-            name: 'dashboard',
-            builder: (context, state) => const DashboardPage(),
-            routes: <RouteBase>[
-              GoRoute(
-                path: 'cards',
-                name: 'cards',
-                builder: (context, state) => const CardsPage(),
-              ),
-              GoRoute(
-                path: 'profile',
-                name: 'profile',
-                builder: (context, state) => const ProfilePage(),
-              ),
-              GoRoute(
-                path: 'settings',
-                name: 'settings',
-                builder: (context, state) => const SettingsPage(),
-              ),
-            ],
-          ),
-          GoRoute(
-            path: RouterPaths.admin,
-            name: 'admin',
-            builder: (context, state) => const AdminPage(),
-          ),
-          GoRoute(
-            path: RouterPaths.notifications,
-            name: 'notifications',
-            builder: (context, state) => const NotificationsPage(),
-          ),
-          GoRoute(
-            path: RouterPaths.gmail,
-            name: 'gmail',
-            builder: (context, state) => const GmailPage(),
-          ),
-        ],
-      ),
-    ],
+    refreshListenable: refreshListenable,
     redirect: (context, state) {
-      final isLoggingIn = state.matchedLocation == RouterPaths.login;
-      final isAuthed = authSession.isAuthenticated;
+      final auth = ref.read(authControllerProvider);
 
-      if (!isAuthed && !isLoggingIn) {
-        return RouterPaths.login;
-      }
+      // Still checking for an existing session cookie on startup — don't
+      // redirect yet, or an authenticated user deep-linking to /homepage
+      // would get bounced to /login before the check even resolves.
+      if (auth.initializing) return null;
 
-      if (isAuthed && isLoggingIn) {
-        return RouterPaths.dashboard;
-      }
+      final loggedIn = auth.user != null;
+      final onAuthPage =
+          state.matchedLocation == RouterPaths.login ||
+          state.matchedLocation == RouterPaths.register;
 
-      final isAdminRoute = state.matchedLocation.startsWith(RouterPaths.admin);
-      if (isAdminRoute && authSession.role != UserRole.admin) {
-        return RouterPaths.dashboard;
-      }
+      if (!loggedIn && !onAuthPage) return RouterPaths.login;
+      if (loggedIn && onAuthPage) return RouterPaths.homepage;
 
       return null;
     },
+    routes: [
+      GoRoute(
+        path: RouterPaths.login,
+        builder: (context, state) => const LoginPage(),
+      ),
+      GoRoute(
+        path: RouterPaths.register,
+        builder: (context, state) => const RegisterPage(),
+      ),
+      GoRoute(
+        path: RouterPaths.homepage,
+        builder: (context, state) => const HomePage(),
+      ),
+    ],
   );
 });

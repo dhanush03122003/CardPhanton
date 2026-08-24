@@ -20,13 +20,16 @@ dependencies:
   # Networking
   dio: ^5.9.0
 
-  # Local Storage
-  flutter_secure_storage: ^9.2.4
+  # # Local Storage
+  # flutter_secure_storage: ^9.2.4
   shared_preferences: ^2.5.3
 
-  # Serialization
-  freezed_annotation: ^3.1.0
-  json_annotation: ^4.9.0
+  # # Serialization
+  # freezed_annotation: ^3.1.0
+  # json_annotation: ^4.9.0
+
+  # Passkeys / WebAuthn
+  web_authn_web: ^0.0.5
 
 dev_dependencies:
   flutter_test:

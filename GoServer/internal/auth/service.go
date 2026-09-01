@@ -35,6 +35,11 @@ func NewWebAuthnService(cfg *Config) (*WebAuthnService, error) {
         RPDisplayName: cfg.RPName,
         RPOrigins:     cfg.RPOrigins,
         RPTopOrigins:  cfg.RPTopOrigins,
+        AuthenticatorSelection: protocol.AuthenticatorSelection{
+			ResidentKey:        protocol.ResidentKeyRequirementPreferred, 
+			RequireResidentKey: protocol.ResidentKeyNotRequired(),          
+			UserVerification:   protocol.VerificationPreferred,
+		},
     })
     if err != nil {
         return nil, err

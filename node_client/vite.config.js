@@ -11,5 +11,6 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+    allowedHosts:['app.webauthnapp.dev']
   },
 });

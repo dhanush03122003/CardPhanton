@@ -1,15 +1,15 @@
 package db
 
 import (
-    "context"
-    "database/sql"
-    "fmt"
-    "io/ioutil"
-    "path/filepath"
-    "strings"
+	"context"
+	"database/sql"
+	"fmt"
+	"io/ioutil"
+	"path/filepath"
+	"strings"
 
-    "github.com/joho/godotenv"
-    _ "modernc.org/sqlite"
+	"github.com/joho/godotenv"
+	_ "modernc.org/sqlite"
 )
 
 // DB holds the database connection pool
@@ -64,17 +64,23 @@ func (db *DB) InitializeDatabase(ctx context.Context) error {
         return fmt.Errorf("failed to read migration file: %w", err)
     }
 
-    // Split by semicolon and execute each statement
+
+// Split by semicolon and execute each statement
     statements := strings.Split(string(sqlContent), ";")
     for _, statement := range statements {
         statement = strings.TrimSpace(statement)
-        if statement == "" || strings.HasPrefix(statement, "--") {
+        
+        // FIX: Only skip if the chunk is completely empty. 
+        // Let SQLite handle the inline comments natively.
+        if statement == "" {
             continue
         }
+        
         if _, err := db.pool.ExecContext(ctx, statement); err != nil {
             return fmt.Errorf("failed to execute migration: %w", err)
         }
     }
+ 
 
     fmt.Println("Database tables initialized successfully")
     return nil

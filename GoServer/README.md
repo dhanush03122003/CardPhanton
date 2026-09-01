@@ -522,6 +522,28 @@ Error response format:
 
 ---
 
+## Running the Server
+
+### Option 1: Binary
+```bash
+./myserver
+```
+
+### Option 2: Go Run
+```bash
+go run cmd/myserver/main.go
+```
+
+### Option 3: Build & Run
+```bash
+go build -o myserver ./cmd/myserver
+./myserver
+```
+
+The server runs on port `8080` by default (configurable via `.env`).
+
+---
+
 ## Testing with cURL
 
 ```bash

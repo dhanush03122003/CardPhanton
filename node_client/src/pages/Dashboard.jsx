@@ -15,16 +15,14 @@ function Dashboard({ user }) {
 
   const fetchAuthenticators = async () => {
     try {
-      const token = localStorage.getItem("webauthn_token");
       const response = await fetch("/api/auth/me", {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include", // Include HTTP-only cookies
       });
       if (response.ok) {
         const data = await response.json();
         setAuthenticators(data.authenticators || []);
       } else if (response.status === 401 || response.status === 404) {
         console.warn("Session expired or invalid user context. Logging out.");
-        localStorage.removeItem("webauthn_token");
         window.location.reload();
       }
     } catch (error) {
@@ -55,18 +53,17 @@ function Dashboard({ user }) {
 
     setRegistering(true);
     try {
-      const token = localStorage.getItem("webauthn_token");
       const optionsResponse = await fetch(
         "/api/auth/generate-additional-device-options",
         {
-          headers: { Authorization: `Bearer ${token}` },
-        }
+          credentials: "include", // Include HTTP-only cookies
+        },
       );
 
       if (!optionsResponse.ok) {
         const errorData = await optionsResponse.json();
         throw new Error(
-          errorData.error || "Failed to generate registration options."
+          errorData.error || "Failed to generate registration options.",
         );
       }
 
@@ -80,8 +77,8 @@ function Dashboard({ user }) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
+        credentials: "include", // Include HTTP-only cookies
         body: JSON.stringify({
           username: user.username,
           verification: registrationResult,
@@ -95,7 +92,7 @@ function Dashboard({ user }) {
         await fetchAuthenticators();
       } else {
         throw new Error(
-          verifyData.error || "Verification on backend rejected key."
+          verifyData.error || "Verification on backend rejected key.",
         );
       }
     } catch (error) {
@@ -113,22 +110,21 @@ function Dashboard({ user }) {
   const handleEditNickname = async (authId, currentNickname) => {
     const newName = prompt(
       `Edit the nickname for this device:`,
-      currentNickname
+      currentNickname,
     );
     if (newName === null || newName.trim() === currentNickname) return;
 
     try {
-      const token = localStorage.getItem("webauthn_token");
       const response = await fetch(
         `/api/auth/authenticator/${authId}/nickname`,
         {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
           },
+          credentials: "include", // Include HTTP-only cookies
           body: JSON.stringify({ nickname: newName }),
-        }
+        },
       );
 
       const data = await response.json();
@@ -145,7 +141,7 @@ function Dashboard({ user }) {
   const handleDeleteAuthenticator = async (authId, nickname) => {
     if (authenticators.length <= 1) {
       alert(
-        "Security Block: You cannot delete this device. You must have at least one authentication method active to prevent account lockout."
+        "Security Block: You cannot delete this device. You must have at least one authentication method active to prevent account lockout.",
       );
       return;
     }
@@ -153,15 +149,14 @@ function Dashboard({ user }) {
     const confirmWipe = window.confirm(
       `Are you absolutely sure you want to delete "${
         nickname || "this device"
-      }"? You will no longer be able to log in with this physical device.`
+      }"? You will no longer be able to log in with this physical device.`,
     );
     if (!confirmWipe) return;
 
     try {
-      const token = localStorage.getItem("webauthn_token");
       const response = await fetch(`/api/auth/authenticator/${authId}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include", // Include HTTP-only cookies
       });
 
       const data = await response.json();
@@ -239,110 +234,121 @@ function Dashboard({ user }) {
   };
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] p-4 sm:p-8">
-      <div className="max-w-5xl mx-auto space-y-8">
-        
-        <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div className='min-h-[calc(100vh-4rem)] p-4 sm:p-8'>
+      <div className='max-w-5xl mx-auto space-y-8'>
+        <header className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4'>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
+            <h1 className='text-2xl font-bold text-gray-900 tracking-tight'>
               Security Details
             </h1>
-            <p className="mt-1 text-sm text-gray-500">
+            <p className='mt-1 text-sm text-gray-500'>
               Manage your passkeys and active authentication methods.
             </p>
           </div>
           <button
             onClick={handleRegisterNewDevice}
             disabled={registering || loading}
-            className="btn-primary"
+            className='btn-primary'
           >
             {registering ? "Adding..." : "+ Add Passkey"}
           </button>
         </header>
 
-        <section className="card">
-          <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-100">
+        <section className='card'>
+          <div className='flex items-center justify-between mb-6 pb-4 border-b border-gray-100'>
             <div>
-              <h2 className="text-base font-semibold text-gray-900">Your passkeys</h2>
-              <p className="text-sm text-gray-500 mt-1">Passkeys allow you to securely log in without a password.</p>
+              <h2 className='text-base font-semibold text-gray-900'>
+                Your passkeys
+              </h2>
+              <p className='text-sm text-gray-500 mt-1'>
+                Passkeys allow you to securely log in without a password.
+              </p>
             </div>
-            <span className="bg-gray-100 text-gray-700 text-xs font-semibold px-2 py-1 rounded">
+            <span className='bg-gray-100 text-gray-700 text-xs font-semibold px-2 py-1 rounded'>
               {authenticators.length}
             </span>
           </div>
 
           {loading ? (
-            <div className="flex flex-col space-y-4">
-               {/* Skeleton Loader */}
-               <div className="h-20 bg-gray-50 animate-pulse rounded-lg border border-gray-100"></div>
-               <div className="h-20 bg-gray-50 animate-pulse rounded-lg border border-gray-100"></div>
+            <div className='flex flex-col space-y-4'>
+              {/* Skeleton Loader */}
+              <div className='h-20 bg-gray-50 animate-pulse rounded-lg border border-gray-100'></div>
+              <div className='h-20 bg-gray-50 animate-pulse rounded-lg border border-gray-100'></div>
             </div>
           ) : authenticators.length === 0 ? (
-            <div className="text-center py-12 bg-gray-50 border border-dashed border-gray-200 rounded-lg">
-              <p className="text-sm text-gray-500">No passkeys configured.</p>
+            <div className='text-center py-12 bg-gray-50 border border-dashed border-gray-200 rounded-lg'>
+              <p className='text-sm text-gray-500'>No passkeys configured.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
               {authenticators.map((auth) => {
                 const info = getDeviceInfo(auth);
 
                 return (
                   <div
                     key={auth.id}
-                    className="p-5 flex flex-col justify-between border border-gray-200 rounded-xl bg-white hover:border-gray-300 transition-colors shadow-sm"
+                    className='p-5 flex flex-col justify-between border border-gray-200 rounded-xl bg-white hover:border-gray-300 transition-colors shadow-sm'
                   >
-                    <div className="flex justify-between items-start">
-                      <div className="flex items-start gap-4">
-                        <div className="w-10 h-10 bg-gray-50 border border-gray-100 rounded-lg flex items-center justify-center shrink-0">
-                           {info.icon ? (
+                    <div className='flex justify-between items-start'>
+                      <div className='flex items-start gap-4'>
+                        <div className='w-10 h-10 bg-gray-50 border border-gray-100 rounded-lg flex items-center justify-center shrink-0'>
+                          {info.icon ? (
                             <img
                               src={info.icon}
                               alt={info.hardwareName}
-                              className="w-6 h-6 object-contain"
+                              className='w-6 h-6 object-contain'
                             />
                           ) : (
-                            <span className="text-lg">{info.textIcon}</span>
+                            <span className='text-lg'>{info.textIcon}</span>
                           )}
                         </div>
                         <div>
-                          <h3 className="font-semibold text-gray-900 text-sm">
+                          <h3 className='font-semibold text-gray-900 text-sm'>
                             {auth.nickname || "Unnamed Passkey"}
                           </h3>
-                          <p className="text-xs text-gray-500 mt-0.5">
+                          <p className='text-xs text-gray-500 mt-0.5'>
                             {info.hardwareName}
                           </p>
-                          <div className="flex gap-2 items-center mt-3">
-                            <span className="text-[10px] uppercase font-bold text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
+                          <div className='flex gap-2 items-center mt-3'>
+                            <span className='text-[10px] uppercase font-bold text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded'>
                               Last used: {timeAgo(auth.lastUsedAt)}
                             </span>
                             {auth.location && (
-                                <a
-                                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(auth.location)}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-[10px] uppercase font-bold text-slate-500 hover:text-slate-800 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200 transition-colors inline-block"
-                                  title="View on Google Maps"
-                                >
-                                  📍 {auth.location}
-                                </a>
-                              )}
+                              <a
+                                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(auth.location)}`}
+                                target='_blank'
+                                rel='noopener noreferrer'
+                                className='text-[10px] uppercase font-bold text-slate-500 hover:text-slate-800 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200 transition-colors inline-block'
+                                title='View on Google Maps'
+                              >
+                                📍 {auth.location}
+                              </a>
+                            )}
                           </div>
                         </div>
                       </div>
                     </div>
 
-                    <div className="mt-5 flex gap-2 pt-4 border-t border-gray-50">
+                    <div className='mt-5 flex gap-2 pt-4 border-t border-gray-50'>
                       <button
-                        onClick={() => handleEditNickname(auth.id, auth.nickname)}
-                        className="text-xs font-medium text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:bg-gray-50 px-3 py-1.5 rounded transition-colors"
+                        onClick={() =>
+                          handleEditNickname(auth.id, auth.nickname)
+                        }
+                        className='text-xs font-medium text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:bg-gray-50 px-3 py-1.5 rounded transition-colors'
                       >
                         Rename
                       </button>
                       <button
-                        onClick={() => handleDeleteAuthenticator(auth.id, auth.nickname)}
+                        onClick={() =>
+                          handleDeleteAuthenticator(auth.id, auth.nickname)
+                        }
                         disabled={authenticators.length <= 1}
-                        className="text-xs font-medium text-red-600 hover:text-red-700 bg-white border border-gray-200 hover:bg-red-50 hover:border-red-200 disabled:opacity-50 disabled:cursor-not-allowed px-3 py-1.5 rounded transition-colors"
-                        title={authenticators.length <= 1 ? "Cannot delete the last remaining passkey." : "Delete passkey"}
+                        className='text-xs font-medium text-red-600 hover:text-red-700 bg-white border border-gray-200 hover:bg-red-50 hover:border-red-200 disabled:opacity-50 disabled:cursor-not-allowed px-3 py-1.5 rounded transition-colors'
+                        title={
+                          authenticators.length <= 1
+                            ? "Cannot delete the last remaining passkey."
+                            : "Delete passkey"
+                        }
                       >
                         Delete
                       </button>
@@ -353,7 +359,6 @@ function Dashboard({ user }) {
             </div>
           )}
         </section>
-
       </div>
     </div>
   );

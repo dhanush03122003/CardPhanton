@@ -51,7 +51,8 @@ function Login({ onLoginSuccess }) {
           setError("Failed to fetch user data.");
         }
       } else {
-        setError("Autofill login verification rejected.");
+        const problem = await verifyResponse.json().catch(() => ({}));
+        setError(problem.detail || "Autofill login verification rejected.");
       }
     } catch (error) {
       console.log("Conditional UI listener status:", error.message);
@@ -79,7 +80,10 @@ function Login({ onLoginSuccess }) {
           credentials: "include", // Include HTTP-only cookies
         },
       );
-      if (!response.ok) throw new Error("User not found or unavailable.");
+      if (!response.ok) {
+        const problem = await response.json().catch(() => ({}));
+        throw new Error(problem.detail || "User not found or unavailable.");
+      }
 
       // --- FIX 3: Unwrap the publicKey object from the Go backend ---
       const responseBody = await response.json();
@@ -112,7 +116,8 @@ function Login({ onLoginSuccess }) {
           setError("Failed to fetch user data.");
         }
       } else {
-        setError("Login failed. Key not recognized.");
+        const problem = await verifyResponse.json().catch(() => ({}));
+        setError(problem.detail || "Login failed. Key not recognized.");
       }
     } catch (error) {
       setError(error.message);

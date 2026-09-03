@@ -5,41 +5,43 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"webauthn-server/internal/api/middleware"
 	"webauthn-server/internal/audit"
+	"webauthn-server/internal/timeutil"
 	"webauthn-server/internal/user"
 )
 
 var (
-	ErrUnauthorized      = errors.New("unauthorized")
-	ErrCardNotFound      = errors.New("card not found")
-	ErrNotAuthorized     = errors.New("not authorized to modify this card")
-	ErrInvalidRequest    = errors.New("invalid request")
-	ErrFailedToFetch     = errors.New("failed to fetch card")
-	ErrFailedToCreate    = errors.New("failed to create card")
-	ErrFailedToUpdate    = errors.New("failed to update card")
-	ErrFailedToDelete    = errors.New("failed to delete card")
-	ErrInvalidPAN        = errors.New("invalid PAN: must be a valid Visa, Mastercard, Amex, or Discover card number")
-	ErrDuplicatePAN      = errors.New("a card with this PAN already exists")
-	ErrInvalidCVV        = errors.New("invalid CVV: must be exactly 3 digits")
-	ErrInvalidExpiry     = errors.New("invalid expiry date: card has expired")
-	ErrInvalidCardBrand  = errors.New("invalid card brand: must be Visa, Mastercard, American Express, Discover, RuPay, or Other")
-	ErrInvalidPaymentMethod = errors.New("invalid payment method type: must be Credit or Debit")
-	ErrInvalidExpMonth   = errors.New("invalid expiry month: must be 1-12")
-	ErrInvalidExpYear   = errors.New("invalid expiry year: must be 2024 or later")
+	ErrUnauthorized             = errors.New("unauthorized")
+	ErrCardNotFound             = errors.New("card not found")
+	ErrNotAuthorized            = errors.New("not authorized to modify this card")
+	ErrInvalidRequest           = errors.New("invalid request")
+	ErrFailedToFetch            = errors.New("failed to fetch card")
+	ErrFailedToCreate           = errors.New("failed to create card")
+	ErrFailedToUpdate           = errors.New("failed to update card")
+	ErrFailedToDelete           = errors.New("failed to delete card")
+	ErrInvalidPAN               = errors.New("invalid PAN: must be a valid Visa, Mastercard, Amex, or Discover card number")
+	ErrDuplicatePAN             = errors.New("a card with this PAN already exists")
+	ErrInvalidCVV               = errors.New("invalid CVV: must be exactly 3 digits")
+	ErrInvalidExpiry            = errors.New("invalid expiry date: card has expired")
+	ErrInvalidCardBrand         = errors.New("invalid card brand: must be Visa, Mastercard, American Express, Discover, RuPay, or Other")
+	ErrInvalidPaymentMethod     = errors.New("invalid payment method type: must be Credit or Debit")
+	ErrInvalidExpMonth          = errors.New("invalid expiry month: must be 1-12")
+	ErrInvalidExpYear           = errors.New("invalid expiry year: must be 2024 or later")
+	ErrInvalidLinkedPhoneNumber = errors.New("invalid linked phone number: must be exactly 10 digits and start with 6-9")
 )
 
 // ValidCardBrands contains valid card brand names
 var ValidCardBrands = map[string]bool{
-	"Visa":            true,
-	"Mastercard":      true,
+	"Visa":             true,
+	"Mastercard":       true,
 	"American Express": true,
-	"Discover":        true,
-	"RuPay":           true,
-	"Other":           true,
+	"Discover":         true,
+	"RuPay":            true,
+	"Other":            true,
 }
 
 // PAN regex: Valid Visa, Mastercard, Amex, or Discover card numbers
@@ -47,6 +49,8 @@ var panRegex = regexp.MustCompile(`^(?:4[0-9]{12}(?:[0-9]{3})?|(?:5[1-5][0-9]{2}
 
 // CVV regex: exactly 3 digits
 var cvvRegex = regexp.MustCompile(`^[0-9]{3}$`)
+
+var phoneRegex = regexp.MustCompile(`^[6-9][0-9]{9}$`)
 
 // CardService handles card business logic
 type CardService struct {
@@ -66,22 +70,11 @@ func NewCardService(repo Repository, userRepo user.UserRepository, auditRepo aud
 
 // GetUserIDFromContext extracts user ID from JWT context
 func (s *CardService) GetUserIDFromContext(c *gin.Context) (string, error) {
-	username, exists := c.Get("username")
-	if !exists || username == "" {
+	userID := middleware.GetUserID(c)
+	if userID == "" {
 		return "", ErrUnauthorized
 	}
-
-	usernameStr, ok := username.(string)
-	if !ok {
-		return "", ErrUnauthorized
-	}
-
-	user, err := s.userRepo.FindUserByUsername(c.Request.Context(), usernameStr)
-	if err != nil || user == nil {
-		return "", ErrUnauthorized
-	}
-
-	return user.ID, nil
+	return userID, nil
 }
 
 // GetAllCards returns all cards for a user
@@ -98,16 +91,30 @@ func (s *CardService) GetAllCards(ctx context.Context, userID string) ([]*Card, 
 	return cards, nil
 }
 
+// GetGlobalCards returns every card and is intended for admin-only access.
+func (s *CardService) GetGlobalCards(ctx context.Context) ([]*Card, error) {
+	cards, err := s.repo.GetAllCards(ctx)
+	if err != nil {
+		return nil, ErrFailedToFetch
+	}
+	if cards == nil {
+		cards = []*Card{}
+	}
+	return cards, nil
+}
+
 // CreateCardInput represents the input for creating a card
 type CreateCardInput struct {
-	PAN                string
-	CardholderName     string
-	BankName           string
-	PaymentMethodType  PaymentMethodType
-	CardBrand          string
-	ExpMonth           int
-	ExpYear            int
-	Cvv                int
+	PAN               string
+	CardholderName    string
+	BankName          string
+	PaymentMethodType PaymentMethodType
+	CardBrand         string
+	ProductName       string
+	LinkedPhoneNumber string
+	ExpMonth          int
+	ExpYear           int
+	Cvv               int
 }
 
 // validateCardInput validates the card input fields
@@ -115,6 +122,9 @@ func (s *CardService) validateCardInput(input CreateCardInput) error {
 	// Validate PAN: must be 15 or 16 digits
 	if !panRegex.MatchString(input.PAN) {
 		return ErrInvalidPAN
+	}
+	if !phoneRegex.MatchString(input.LinkedPhoneNumber) {
+		return ErrInvalidLinkedPhoneNumber
 	}
 
 	// Validate CVV: must be exactly 3 digits
@@ -138,13 +148,14 @@ func (s *CardService) validateCardInput(input CreateCardInput) error {
 	}
 
 	// Validate Expiry Year: must be 2024 or later
-	currentYear := time.Now().Year()
+	now := timeutil.Now()
+	currentYear := now.Year()
 	if input.ExpYear < currentYear || input.ExpYear > currentYear+20 {
 		return ErrInvalidExpYear
 	}
 
 	// Check if card is expired
-	if input.ExpYear == currentYear && input.ExpMonth < int(time.Now().Month()) {
+	if input.ExpYear == currentYear && input.ExpMonth < int(now.Month()) {
 		return ErrInvalidExpiry
 	}
 
@@ -176,10 +187,12 @@ func (s *CardService) CreateCard(ctx context.Context, userID string, input Creat
 	card := &Card{
 		UserID:            userID,
 		PAN:               input.PAN,
-		CardholderName:   input.CardholderName,
+		CardholderName:    input.CardholderName,
 		BankName:          input.BankName,
 		PaymentMethodType: input.PaymentMethodType,
 		CardBrand:         input.CardBrand,
+		ProductName:       input.ProductName,
+		LinkedPhoneNumber: input.LinkedPhoneNumber,
 		ExpMonth:          input.ExpMonth,
 		ExpYear:           input.ExpYear,
 		Cvv:               input.Cvv,
@@ -199,14 +212,16 @@ func (s *CardService) CreateCard(ctx context.Context, userID string, input Creat
 
 // UpdateCardInput represents the input for updating a card
 type UpdateCardInput struct {
-	PAN                string
-	CardholderName     string
-	BankName           string
-	PaymentMethodType  PaymentMethodType
-	CardBrand          string
-	ExpMonth           int
-	ExpYear            int
-	Cvv                int
+	PAN               string
+	CardholderName    string
+	BankName          string
+	PaymentMethodType PaymentMethodType
+	CardBrand         string
+	ProductName       string
+	LinkedPhoneNumber string
+	ExpMonth          int
+	ExpYear           int
+	Cvv               int
 }
 
 // UpdateCard updates an existing card (with authorization check)
@@ -225,30 +240,34 @@ func (s *CardService) UpdateCard(ctx context.Context, userID, cardID string, inp
 
 	// Validate input
 	createInput := CreateCardInput{
-		PAN:                input.PAN,
-		CardholderName:     input.CardholderName,
-		BankName:           input.BankName,
-		PaymentMethodType:  input.PaymentMethodType,
-		CardBrand:          input.CardBrand,
-		ExpMonth:           input.ExpMonth,
-		ExpYear:            input.ExpYear,
-		Cvv:                input.Cvv,
+		PAN:               input.PAN,
+		CardholderName:    input.CardholderName,
+		BankName:          input.BankName,
+		PaymentMethodType: input.PaymentMethodType,
+		CardBrand:         input.CardBrand,
+		ProductName:       input.ProductName,
+		LinkedPhoneNumber: input.LinkedPhoneNumber,
+		ExpMonth:          input.ExpMonth,
+		ExpYear:           input.ExpYear,
+		Cvv:               input.Cvv,
 	}
 	if err := s.validateCardInput(createInput); err != nil {
 		return nil, err
 	}
 
 	card := &Card{
-		ID:                 cardID,
-		UserID:             userID,
-		PAN:                input.PAN,
-		CardholderName:     input.CardholderName,
-		BankName:           input.BankName,
-		PaymentMethodType:  input.PaymentMethodType,
-		CardBrand:          input.CardBrand,
-		ExpMonth:           input.ExpMonth,
-		ExpYear:            input.ExpYear,
-		Cvv:                input.Cvv,
+		ID:                cardID,
+		UserID:            userID,
+		PAN:               input.PAN,
+		CardholderName:    input.CardholderName,
+		BankName:          input.BankName,
+		PaymentMethodType: input.PaymentMethodType,
+		CardBrand:         input.CardBrand,
+		ProductName:       input.ProductName,
+		LinkedPhoneNumber: input.LinkedPhoneNumber,
+		ExpMonth:          input.ExpMonth,
+		ExpYear:           input.ExpYear,
+		Cvv:               input.Cvv,
 	}
 
 	if err := s.repo.UpdateCardDetails(ctx, card); err != nil {

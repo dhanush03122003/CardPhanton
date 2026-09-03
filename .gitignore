@@ -53,3 +53,42 @@ frontend/.metadata
 frontend/.env
 frontend/.env.*
 !frontend/.env.example
+
+# Node.js / npm (React Vite frontend)
+node_client/node_modules/
+node_client/dist/
+node_client/.vite/
+node_client/.env.local
+node_client/.env.*.local
+
+# npm / yarn / pnpm
+node_client/package-lock.json
+node_client/yarn.lock
+node_client/pnpm-lock.yaml
+node_client/npm-debug.log*
+node_client/yarn-debug.log*
+node_client/yarn-error.log*
+node_client/pnpm-debug.log*
+
+# IDE / Editor
+node_client/.vscode/
+node_client/.idea/
+node_client/*.swp
+node_client/*.swo
+node_client/*~
+node_client/.DS_Store
+node_client/Thumbs.db
+
+# Build artifacts
+node_client/build/
+node_client/out/
+node_client/.next/
+node_client/.turbo/
+
+# Misc
+node_client/.cache/
+node_client/.eslintcache
+node_client/.stylelintcache
+node_client/.jest-cache/
+node_client/coverage/
+node_client/dist-ssr/

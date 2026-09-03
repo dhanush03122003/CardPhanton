@@ -24,7 +24,7 @@ func NewCardHandler(service *CardService, cfg *config.Config) *CardHandler {
 func (h *CardHandler) GetCards(c *gin.Context) {
 	userID, err := h.service.GetUserIDFromContext(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": ErrMsgUnauthorized})
 		return
 	}
 
@@ -37,23 +37,35 @@ func (h *CardHandler) GetCards(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"cards": cards})
 }
 
+// GetGlobalCards handles GET /api/cards/global for administrators.
+func (h *CardHandler) GetGlobalCards(c *gin.Context) {
+	cards, err := h.service.GetGlobalCards(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"cards": cards})
+}
+
 // CreateCardRequest represents the request body for creating a card
 type CreateCardRequest struct {
-	PAN                string `json:"pan" binding:"required"`
-	CardholderName     string `json:"cardholder_name" binding:"required"`
-	BankName           string `json:"bank_name" binding:"required"`
-	PaymentMethodType  string `json:"payment_method_type" binding:"required"`
-	CardBrand          string `json:"card_brand" binding:"required"`
-	ExpMonth           int    `json:"exp_month" binding:"required,min=1,max=12"`
-	ExpYear            int    `json:"exp_year" binding:"required,min=2024"`
-	Cvv                int    `json:"cvv" binding:"required,min=100,max=9999"`
+	PAN               string `json:"pan" binding:"required"`
+	CardholderName    string `json:"cardholder_name" binding:"required"`
+	BankName          string `json:"bank_name" binding:"required"`
+	PaymentMethodType string `json:"payment_method_type" binding:"required"`
+	CardBrand         string `json:"card_brand" binding:"required"`
+	ProductName       string `json:"product_name"`
+	LinkedPhoneNumber string `json:"linked_phone_number" binding:"required"`
+	ExpMonth          int    `json:"exp_month" binding:"required,min=1,max=12"`
+	ExpYear           int    `json:"exp_year" binding:"required,min=2024"`
+	Cvv               int    `json:"cvv" binding:"required,min=100,max=9999"`
 }
 
 // CreateCard creates a new card for the authenticated user
 func (h *CardHandler) CreateCard(c *gin.Context) {
 	userID, err := h.service.GetUserIDFromContext(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": ErrMsgUnauthorized})
 		return
 	}
 
@@ -64,14 +76,16 @@ func (h *CardHandler) CreateCard(c *gin.Context) {
 	}
 
 	input := CreateCardInput{
-		PAN:                req.PAN,
-		CardholderName:     req.CardholderName,
-		BankName:           req.BankName,
-		PaymentMethodType:  PaymentMethodType(req.PaymentMethodType),
-		CardBrand:          req.CardBrand,
-		ExpMonth:           req.ExpMonth,
-		ExpYear:            req.ExpYear,
-		Cvv:                req.Cvv,
+		PAN:               req.PAN,
+		CardholderName:    req.CardholderName,
+		BankName:          req.BankName,
+		PaymentMethodType: PaymentMethodType(req.PaymentMethodType),
+		CardBrand:         req.CardBrand,
+		ProductName:       req.ProductName,
+		LinkedPhoneNumber: req.LinkedPhoneNumber,
+		ExpMonth:          req.ExpMonth,
+		ExpYear:           req.ExpYear,
+		Cvv:               req.Cvv,
 	}
 
 	actionInput := CardActionInput{
@@ -83,7 +97,8 @@ func (h *CardHandler) CreateCard(c *gin.Context) {
 	if err != nil {
 		switch err {
 		case ErrInvalidPAN, ErrInvalidCVV, ErrInvalidExpiry, ErrInvalidCardBrand,
-			ErrInvalidPaymentMethod, ErrInvalidExpMonth, ErrInvalidExpYear:
+			ErrInvalidPaymentMethod, ErrInvalidExpMonth, ErrInvalidExpYear,
+			ErrInvalidLinkedPhoneNumber:
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case ErrDuplicatePAN:
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
@@ -98,27 +113,29 @@ func (h *CardHandler) CreateCard(c *gin.Context) {
 
 // UpdateCardRequest represents the request body for updating a card
 type UpdateCardRequest struct {
-	PAN                string `json:"pan" binding:"required"`
-	CardholderName     string `json:"cardholder_name" binding:"required"`
-	BankName           string `json:"bank_name" binding:"required"`
-	PaymentMethodType  string `json:"payment_method_type" binding:"required"`
-	CardBrand          string `json:"card_brand" binding:"required"`
-	ExpMonth           int    `json:"exp_month" binding:"required,min=1,max=12"`
-	ExpYear            int    `json:"exp_year" binding:"required,min=2024"`
-	Cvv                int    `json:"cvv" binding:"required,min=100,max=9999"`
+	PAN               string `json:"pan" binding:"required"`
+	CardholderName    string `json:"cardholder_name" binding:"required"`
+	BankName          string `json:"bank_name" binding:"required"`
+	PaymentMethodType string `json:"payment_method_type" binding:"required"`
+	CardBrand         string `json:"card_brand" binding:"required"`
+	ProductName       string `json:"product_name"`
+	LinkedPhoneNumber string `json:"linked_phone_number" binding:"required"`
+	ExpMonth          int    `json:"exp_month" binding:"required,min=1,max=12"`
+	ExpYear           int    `json:"exp_year" binding:"required,min=2024"`
+	Cvv               int    `json:"cvv" binding:"required,min=100,max=9999"`
 }
 
 // UpdateCard updates an existing card
 func (h *CardHandler) UpdateCard(c *gin.Context) {
 	userID, err := h.service.GetUserIDFromContext(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": ErrMsgUnauthorized})
 		return
 	}
 
 	cardID := c.Param("id")
 	if cardID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "card id is required"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": ErrMsgCardIDRequired})
 		return
 	}
 
@@ -129,14 +146,16 @@ func (h *CardHandler) UpdateCard(c *gin.Context) {
 	}
 
 	input := UpdateCardInput{
-		PAN:                req.PAN,
-		CardholderName:     req.CardholderName,
-		BankName:           req.BankName,
-		PaymentMethodType:  PaymentMethodType(req.PaymentMethodType),
-		CardBrand:          req.CardBrand,
-		ExpMonth:           req.ExpMonth,
-		ExpYear:            req.ExpYear,
-		Cvv:                req.Cvv,
+		PAN:               req.PAN,
+		CardholderName:    req.CardholderName,
+		BankName:          req.BankName,
+		PaymentMethodType: PaymentMethodType(req.PaymentMethodType),
+		CardBrand:         req.CardBrand,
+		ProductName:       req.ProductName,
+		LinkedPhoneNumber: req.LinkedPhoneNumber,
+		ExpMonth:          req.ExpMonth,
+		ExpYear:           req.ExpYear,
+		Cvv:               req.Cvv,
 	}
 
 	actionInput := CardActionInput{
@@ -148,11 +167,12 @@ func (h *CardHandler) UpdateCard(c *gin.Context) {
 	if err != nil {
 		switch err {
 		case ErrCardNotFound:
-			c.JSON(http.StatusNotFound, gin.H{"error": "card not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": ErrMsgCardNotFound})
 		case ErrNotAuthorized:
-			c.JSON(http.StatusForbidden, gin.H{"error": "not authorized to update this card"})
+			c.JSON(http.StatusForbidden, gin.H{"error": ErrMsgNotAuthorizedUpdate})
 		case ErrInvalidPAN, ErrInvalidCVV, ErrInvalidExpiry, ErrInvalidCardBrand,
-			ErrInvalidPaymentMethod, ErrInvalidExpMonth, ErrInvalidExpYear:
+			ErrInvalidPaymentMethod, ErrInvalidExpMonth, ErrInvalidExpYear,
+			ErrInvalidLinkedPhoneNumber:
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -167,13 +187,13 @@ func (h *CardHandler) UpdateCard(c *gin.Context) {
 func (h *CardHandler) DeleteCard(c *gin.Context) {
 	userID, err := h.service.GetUserIDFromContext(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": ErrMsgUnauthorized})
 		return
 	}
 
 	cardID := c.Param("id")
 	if cardID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "card id is required"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": ErrMsgCardIDRequired})
 		return
 	}
 
@@ -186,9 +206,9 @@ func (h *CardHandler) DeleteCard(c *gin.Context) {
 	if err != nil {
 		switch err {
 		case ErrCardNotFound:
-			c.JSON(http.StatusNotFound, gin.H{"error": "card not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": ErrMsgCardNotFound})
 		case ErrNotAuthorized:
-			c.JSON(http.StatusForbidden, gin.H{"error": "not authorized to delete this card"})
+			c.JSON(http.StatusForbidden, gin.H{"error": ErrMsgNotAuthorizedDelete})
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		}

@@ -1,12 +1,14 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { startRegistration } from "@simplewebauthn/browser";
+import { apiRequest, getFieldError } from "../api";
 
 function Register() {
   const [username, setUsername] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
   const navigate = useNavigate();
 
   const handleRegister = async (e) => {
@@ -19,28 +21,14 @@ function Register() {
       return;
     }
     setError("");
+    setFieldErrors({});
     setSuccess("");
     setIsLoading(true);
 
     try {
-      const optionsResponse = await fetch(
-        `/api/auth/generate-registration-options?username=${encodeURIComponent(
-          cleanUsername,
-        )}`,
-        {
-          credentials: "include", // Include HTTP-only cookies
-        },
+      const responseBody = await apiRequest(
+        `/api/auth/generate-registration-options?username=${encodeURIComponent(cleanUsername)}`,
       );
-
-      if (!optionsResponse.ok) {
-        const errorData = await optionsResponse.json();
-        throw new Error(
-          errorData.error || "Failed to get registration options",
-        );
-      }
-
-      // --- FIX 1: Parse response and unwrap the Go backend's 'publicKey' wrapper ---
-      const responseBody = await optionsResponse.json();
       const options = responseBody.publicKey;
 
       let attestation;
@@ -57,26 +45,13 @@ function Register() {
         throw err;
       }
 
-      const verificationResponse = await fetch(
-        "/api/auth/verify-registration",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          credentials: "include", // Include HTTP-only cookies
-          body: JSON.stringify({
-            username,
-            verification: attestation,
-          }),
-        },
-      );
-
-      const result = await verificationResponse.json();
-
-      if (!verificationResponse.ok) {
-        throw new Error(result.error || "Registration verification failed");
-      }
+      const result = await apiRequest("/api/auth/verify-registration", {
+        method: "POST",
+        body: JSON.stringify({
+          username: cleanUsername,
+          verification: attestation,
+        }),
+      });
 
       if (result.success) {
         setSuccess("Registration successful! Redirecting to login...");
@@ -85,11 +60,14 @@ function Register() {
         setTimeout(() => {
           navigate("/login");
         }, 2000);
-      } else {
-        throw new Error(result.error || "Registration failed");
-      }
+      } else throw new Error("Registration failed.");
     } catch (err) {
-      setError(err.message || "An error occurred during registration");
+      setError(err.message || "An error occurred during registration.");
+      setFieldErrors(
+        Object.fromEntries(
+          (err.invalidParams || []).map((item) => [item.name, item.reason]),
+        ),
+      );
     } finally {
       setIsLoading(false);
     }
@@ -143,6 +121,18 @@ function Register() {
                 placeholder='Ex. johndoe'
                 className='input-field'
               />
+              {fieldErrors.username && (
+                <p className='mt-1 text-xs text-red-600'>
+                  {getFieldError(
+                    {
+                      invalidParams: Object.entries(fieldErrors).map(
+                        ([name, reason]) => ({ name, reason }),
+                      ),
+                    },
+                    "username",
+                  )}
+                </p>
+              )}
             </div>
 
             {error && (

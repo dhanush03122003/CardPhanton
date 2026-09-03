@@ -1,28 +1,24 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { startRegistration } from "@simplewebauthn/browser";
+import GlobalCards from "./GlobalCards";
+import MyCards from "./MyCards";
+import UserManagement from "./UserManagement";
 
 function Dashboard({ user }) {
   const [authenticators, setAuthenticators] = useState([]);
   const [aaguidMap, setAaguidMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [registering, setRegistering] = useState(false);
-
-  useEffect(() => {
-    Promise.all([fetchAuthenticators(), fetchAaguidMap()]).finally(() => {
-      setLoading(false);
-    });
-  }, []);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [activeTab, setActiveTab] = useState("security");
 
   const fetchAuthenticators = async () => {
     try {
-      const response = await fetch("/api/auth/me", {
-        credentials: "include", // Include HTTP-only cookies
-      });
+      const response = await fetch("/api/auth/me", { credentials: "include" });
       if (response.ok) {
         const data = await response.json();
         setAuthenticators(data.authenticators || []);
       } else if (response.status === 401 || response.status === 404) {
-        console.warn("Session expired or invalid user context. Logging out.");
         window.location.reload();
       }
     } catch (error) {
@@ -30,215 +26,133 @@ function Dashboard({ user }) {
     }
   };
 
-  const fetchAaguidMap = async () => {
-    try {
-      const response = await fetch(
-        "https://raw.githubusercontent.com/passkeydeveloper/passkey-authenticator-aaguids/main/aaguid.json",
-      );
-      if (response.ok) {
-        const data = await response.json();
-        setAaguidMap(data);
-      }
-    } catch (error) {
-      console.error("Error fetching AAGUID map:", error);
+  useEffect(() => {
+    fetchAuthenticators().finally(() => setLoading(false));
+    fetch(
+      "https://raw.githubusercontent.com/passkeydeveloper/passkey-authenticator-aaguids/main/aaguid.json",
+    )
+      .then((response) => (response.ok ? response.json() : {}))
+      .then(setAaguidMap)
+      .catch((error) => console.error("Error fetching AAGUID map:", error));
+    fetch("/api/admin/status", { credentials: "include" })
+      .then((response) => (response.ok ? response.json() : { isAdmin: false }))
+      .then((data) => setIsAdmin(data.isAdmin === true))
+      .catch((error) => console.error("Error fetching admin status:", error));
+  }, []);
+
+  const getDeviceInfo = (auth) => {
+    const attachmentType = auth.attachmentType || auth.attachment_type;
+    const transports = auth.transports || [];
+    const aaguid = (auth.aaguid || "").toLowerCase();
+    const brand = aaguidMap[aaguid];
+    if (brand) {
+      return {
+        name: brand.name,
+        logo: brand.icon_light || brand.icon_dark,
+        description:
+          attachmentType === "platform" ? "Platform passkey" : "Security key",
+      };
     }
+    if (
+      transports.includes("internal") &&
+      /Mac|iPhone|iPad/i.test(navigator.userAgent)
+    ) {
+      return {
+        name: "Apple iCloud Keychain",
+        logo: null,
+        description: "Face ID / Touch ID",
+      };
+    }
+    return {
+      name:
+        attachmentType === "platform" ? "Built-in Biometrics" : "Security Key",
+      logo: null,
+      description: "Standard WebAuthn device",
+    };
   };
 
   const handleRegisterNewDevice = async () => {
-    const customName = prompt(
-      "Enter a label/nickname for this passkey device:",
+    const nickname = window.prompt(
+      "Enter a label for this passkey:",
       "My Personal Device",
     );
-    if (customName === null) return;
-
+    if (nickname === null) return;
     setRegistering(true);
     try {
       const optionsResponse = await fetch(
         "/api/auth/generate-additional-device-options",
-        {
-          credentials: "include", // Include HTTP-only cookies
-        },
+        { credentials: "include" },
       );
-
-      if (!optionsResponse.ok) {
-        const errorData = await optionsResponse.json();
-        throw new Error(
-          errorData.error || "Failed to generate registration options.",
-        );
-      }
-
-      const responseBody = await optionsResponse.json();
-      const options = responseBody.publicKey;
+      const optionsData = await optionsResponse.json();
+      if (!optionsResponse.ok)
+        throw new Error(optionsData.error || "Failed to generate options.");
       const registrationResult = await startRegistration({
-        optionsJSON: options,
+        optionsJSON: optionsData.publicKey,
       });
-
       const verifyResponse = await fetch("/api/auth/verify-registration", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include", // Include HTTP-only cookies
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           username: user.username,
           verification: registrationResult,
-          nickname: customName.trim() || "Unnamed Passkey",
+          nickname: nickname.trim() || "Unnamed Passkey",
         }),
       });
-
       const verifyData = await verifyResponse.json();
-
-      if (verifyData.success) {
-        await fetchAuthenticators();
-      } else {
-        throw new Error(
-          verifyData.error || "Verification on backend rejected key.",
-        );
-      }
+      if (!verifyResponse.ok)
+        throw new Error(verifyData.error || "Passkey registration failed.");
+      await fetchAuthenticators();
     } catch (error) {
-      console.error("Multi-device Registration Exception:", error);
-      if (error.name === "NotAllowedError") {
-        alert("Registration timed out or cancelled.");
-      } else {
-        alert(`Configuration Failed: ${error.message}`);
-      }
+      window.alert(
+        error.name === "NotAllowedError"
+          ? "Registration timed out or cancelled."
+          : error.message,
+      );
     } finally {
       setRegistering(false);
     }
   };
 
-  const handleEditNickname = async (authId, currentNickname) => {
-    const newName = prompt(
-      `Edit the nickname for this device:`,
-      currentNickname,
+  const editNickname = async (auth) => {
+    const nickname = window.prompt(
+      "Edit the nickname for this device:",
+      auth.nickname || "",
     );
-    if (newName === null || newName.trim() === currentNickname) return;
-
-    try {
-      const response = await fetch(
-        `/api/auth/authenticator/${authId}/nickname`,
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          credentials: "include", // Include HTTP-only cookies
-          body: JSON.stringify({ nickname: newName }),
-        },
-      );
-
-      const data = await response.json();
-      if (response.ok) {
-        await fetchAuthenticators();
-      } else {
-        alert(data.error || "Failed to update nickname.");
-      }
-    } catch (error) {
-      console.error("Error editing nickname:", error);
-    }
-  };
-
-  const handleDeleteAuthenticator = async (authId, nickname) => {
-    if (authenticators.length <= 1) {
-      alert(
-        "Security Block: You cannot delete this device. You must have at least one authentication method active to prevent account lockout.",
-      );
-      return;
-    }
-
-    const confirmWipe = window.confirm(
-      `Are you absolutely sure you want to delete "${
-        nickname || "this device"
-      }"? You will no longer be able to log in with this physical device.`,
+    if (nickname === null || nickname.trim() === (auth.nickname || "")) return;
+    const response = await fetch(
+      `/api/auth/authenticator/${auth.id}/nickname`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ nickname: nickname.trim() }),
+      },
     );
-    if (!confirmWipe) return;
-
-    try {
-      const response = await fetch(`/api/auth/authenticator/${authId}`, {
-        method: "DELETE",
-        credentials: "include", // Include HTTP-only cookies
-      });
-
-      const data = await response.json();
-      if (response.ok) {
-        await fetchAuthenticators();
-      } else {
-        alert(data.error || "Failed to remove device.");
-      }
-    } catch (error) {
-      console.error("Error deleting authenticator:", error);
-    }
+    const data = await response.json();
+    if (!response.ok) window.alert(data.error || "Failed to update nickname.");
+    else await fetchAuthenticators();
   };
 
-  const getDeviceInfo = (auth) => {
-    const fallbackIcon = auth.attachmentType === "platform" ? "👤" : "🔑";
-    const fallbackName =
-      auth.attachmentType === "platform"
-        ? "Built-in Biometrics"
-        : "Security Key";
-
-    const lookupKey = auth.aaguid?.toLowerCase();
-    const brandData = aaguidMap[lookupKey];
-
-    if (
-      lookupKey === "00000000-0000-0000-0000-000000000000" ||
-      (!brandData &&
-        auth.transports?.includes("internal") &&
-        /Mac|iPhone|iPad/i.test(navigator.userAgent))
-    ) {
-      return {
-        hardwareName: "Apple iCloud Keychain",
-        icon: null,
-        textIcon: "🍏",
-        subText: "FaceID / TouchID",
-      };
-    }
-
-    if (brandData) {
-      return {
-        hardwareName: brandData.name,
-        icon: brandData.icon_light || brandData.icon_dark,
-        textIcon: null,
-        subText:
-          auth.attachmentType === "platform"
-            ? "Platform Passkey"
-            : "Cross-platform Token",
-      };
-    }
-
-    return {
-      hardwareName: fallbackName,
-      icon: null,
-      textIcon: fallbackIcon,
-      subText: "Standard WebAuthn Device",
-    };
-  };
-
-  const timeAgo = (dateString) => {
-    if (!dateString) return "Never used";
-    const date = new Date(dateString);
-    const now = new Date();
-    const seconds = Math.floor((now - date) / 1000);
-    if (seconds < 60) return "Just now";
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes} minute${minutes !== 1 ? "s" : ""} ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours} hour${hours !== 1 ? "s" : ""} ago`;
-    const days = Math.floor(hours / 24);
-    if (days < 30) return `${days} day${days !== 1 ? "s" : ""} ago`;
-    return date.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
+  const deleteAuthenticator = async (auth) => {
+    if (authenticators.length <= 1)
+      return window.alert("You must keep at least one passkey.");
+    if (!window.confirm(`Delete ${auth.nickname || "this passkey"}?`)) return;
+    const response = await fetch(`/api/auth/authenticator/${auth.id}`, {
+      method: "DELETE",
+      credentials: "include",
     });
+    const data = await response.json();
+    if (!response.ok) window.alert(data.error || "Failed to delete passkey.");
+    else await fetchAuthenticators();
   };
 
   return (
     <div className='min-h-[calc(100vh-4rem)] p-4 sm:p-8'>
-      <div className='max-w-5xl mx-auto space-y-8'>
-        <header className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4'>
+      <div className='mx-auto max-w-5xl space-y-8'>
+        <header className='flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between'>
           <div>
-            <h1 className='text-2xl font-bold text-gray-900 tracking-tight'>
+            <h1 className='text-2xl font-bold text-gray-900'>
               Security Details
             </h1>
             <p className='mt-1 text-sm text-gray-500'>
@@ -253,112 +167,121 @@ function Dashboard({ user }) {
             {registering ? "Adding..." : "+ Add Passkey"}
           </button>
         </header>
-
-        <section className='card'>
-          <div className='flex items-center justify-between mb-6 pb-4 border-b border-gray-100'>
-            <div>
-              <h2 className='text-base font-semibold text-gray-900'>
-                Your passkeys
-              </h2>
-              <p className='text-sm text-gray-500 mt-1'>
-                Passkeys allow you to securely log in without a password.
+        <nav
+          className='flex gap-1 border-b border-gray-200'
+          aria-label='Dashboard sections'
+        >
+          <button
+            onClick={() => setActiveTab("security")}
+            className={`border-b-2 px-4 py-2.5 text-sm font-medium ${activeTab === "security" ? "border-slate-900 text-slate-900" : "border-transparent text-gray-500"}`}
+          >
+            Security
+          </button>
+          <button
+            onClick={() => setActiveTab("my-cards")}
+            className={`border-b-2 px-4 py-2.5 text-sm font-medium ${activeTab === "my-cards" ? "border-slate-900 text-slate-900" : "border-transparent text-gray-500"}`}
+          >
+            My Cards
+          </button>
+          {isAdmin && (
+            <button
+              onClick={() => setActiveTab("management")}
+              className={`border-b-2 px-4 py-2.5 text-sm font-medium ${activeTab === "management" ? "border-slate-900 text-slate-900" : "border-transparent text-gray-500"}`}
+            >
+              User Management
+            </button>
+          )}
+          {isAdmin && (
+            <button
+              onClick={() => setActiveTab("global-cards")}
+              className={`border-b-2 px-4 py-2.5 text-sm font-medium ${activeTab === "global-cards" ? "border-slate-900 text-slate-900" : "border-transparent text-gray-500"}`}
+            >
+              Global Cards
+            </button>
+          )}
+        </nav>
+        {activeTab === "my-cards" ? (
+          <MyCards />
+        ) : activeTab === "global-cards" && isAdmin ? (
+          <GlobalCards />
+        ) : activeTab === "management" && isAdmin ? (
+          <UserManagement />
+        ) : (
+          <section className='card'>
+            <div className='mb-6 flex items-center justify-between border-b border-gray-100 pb-4'>
+              <div>
+                <h2 className='font-semibold text-gray-900'>Your passkeys</h2>
+                <p className='mt-1 text-sm text-gray-500'>
+                  Passkeys allow you to securely log in without a password.
+                </p>
+              </div>
+              <span className='rounded bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-700'>
+                {authenticators.length}
+              </span>
+            </div>
+            {loading ? (
+              <div className='h-20 animate-pulse rounded-lg bg-gray-50' />
+            ) : authenticators.length === 0 ? (
+              <p className='py-12 text-center text-sm text-gray-500'>
+                No passkeys configured.
               </p>
-            </div>
-            <span className='bg-gray-100 text-gray-700 text-xs font-semibold px-2 py-1 rounded'>
-              {authenticators.length}
-            </span>
-          </div>
-
-          {loading ? (
-            <div className='flex flex-col space-y-4'>
-              {/* Skeleton Loader */}
-              <div className='h-20 bg-gray-50 animate-pulse rounded-lg border border-gray-100'></div>
-              <div className='h-20 bg-gray-50 animate-pulse rounded-lg border border-gray-100'></div>
-            </div>
-          ) : authenticators.length === 0 ? (
-            <div className='text-center py-12 bg-gray-50 border border-dashed border-gray-200 rounded-lg'>
-              <p className='text-sm text-gray-500'>No passkeys configured.</p>
-            </div>
-          ) : (
-            <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
-              {authenticators.map((auth) => {
-                const info = getDeviceInfo(auth);
-
-                return (
-                  <div
-                    key={auth.id}
-                    className='p-5 flex flex-col justify-between border border-gray-200 rounded-xl bg-white hover:border-gray-300 transition-colors shadow-sm'
-                  >
-                    <div className='flex justify-between items-start'>
-                      <div className='flex items-start gap-4'>
-                        <div className='w-10 h-10 bg-gray-50 border border-gray-100 rounded-lg flex items-center justify-center shrink-0'>
-                          {info.icon ? (
+            ) : (
+              <div className='space-y-3'>
+                {authenticators.map((auth) => {
+                  const info = getDeviceInfo(auth);
+                  return (
+                    <div
+                      key={auth.id}
+                      className='flex items-center justify-between rounded-lg border border-gray-200 p-4'
+                    >
+                      <div className='flex items-center gap-3'>
+                        <div className='flex h-10 w-10 items-center justify-center rounded-lg border border-gray-100 bg-gray-50'>
+                          {info.logo ? (
                             <img
-                              src={info.icon}
-                              alt={info.hardwareName}
-                              className='w-6 h-6 object-contain'
+                              src={info.logo}
+                              alt=''
+                              className='h-6 w-6 object-contain'
                             />
                           ) : (
-                            <span className='text-lg'>{info.textIcon}</span>
+                            <span className='text-lg'>
+                              {info.name.includes("Apple")
+                                ? "🍏"
+                                : info.name.includes("Biometric")
+                                  ? "👤"
+                                  : "🔑"}
+                            </span>
                           )}
                         </div>
                         <div>
-                          <h3 className='font-semibold text-gray-900 text-sm'>
+                          <h3 className='text-sm font-semibold text-gray-900'>
                             {auth.nickname || "Unnamed Passkey"}
                           </h3>
-                          <p className='text-xs text-gray-500 mt-0.5'>
-                            {info.hardwareName}
+                          <p className='mt-1 text-xs text-gray-500'>
+                            {info.name} · {info.description}
                           </p>
-                          <div className='flex gap-2 items-center mt-3'>
-                            <span className='text-[10px] uppercase font-bold text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded'>
-                              Last used: {timeAgo(auth.lastUsedAt)}
-                            </span>
-                            {auth.location && (
-                              <a
-                                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(auth.location)}`}
-                                target='_blank'
-                                rel='noopener noreferrer'
-                                className='text-[10px] uppercase font-bold text-slate-500 hover:text-slate-800 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200 transition-colors inline-block'
-                                title='View on Google Maps'
-                              >
-                                📍 {auth.location}
-                              </a>
-                            )}
-                          </div>
                         </div>
                       </div>
+                      <div className='flex gap-2'>
+                        <button
+                          onClick={() => editNickname(auth)}
+                          className='btn-secondary'
+                        >
+                          Rename
+                        </button>
+                        <button
+                          onClick={() => deleteAuthenticator(auth)}
+                          className='btn-secondary text-red-600'
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </div>
-
-                    <div className='mt-5 flex gap-2 pt-4 border-t border-gray-50'>
-                      <button
-                        onClick={() =>
-                          handleEditNickname(auth.id, auth.nickname)
-                        }
-                        className='text-xs font-medium text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:bg-gray-50 px-3 py-1.5 rounded transition-colors'
-                      >
-                        Rename
-                      </button>
-                      <button
-                        onClick={() =>
-                          handleDeleteAuthenticator(auth.id, auth.nickname)
-                        }
-                        disabled={authenticators.length <= 1}
-                        className='text-xs font-medium text-red-600 hover:text-red-700 bg-white border border-gray-200 hover:bg-red-50 hover:border-red-200 disabled:opacity-50 disabled:cursor-not-allowed px-3 py-1.5 rounded transition-colors'
-                        title={
-                          authenticators.length <= 1
-                            ? "Cannot delete the last remaining passkey."
-                            : "Delete passkey"
-                        }
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        )}
       </div>
     </div>
   );

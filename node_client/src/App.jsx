@@ -7,8 +7,17 @@ import Dashboard from "./pages/Dashboard";
 
 function App() {
   const [user, setUser] = useState(null);
+  const [darkMode, setDarkMode] = useState(() => {
+    const savedTheme = localStorage.getItem("theme");
+    return savedTheme === "dark";
+  });
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", darkMode);
+    localStorage.setItem("theme", darkMode ? "dark" : "light");
+  }, [darkMode]);
 
   useEffect(() => {
     // Verify authentication status via cookies on app load
@@ -67,7 +76,12 @@ function App() {
 
   return (
     <div className='min-h-screen'>
-      <Navbar user={user} onLogout={handleLogout} />
+      <Navbar
+        user={user}
+        onLogout={handleLogout}
+        darkMode={darkMode}
+        onToggleTheme={() => setDarkMode((enabled) => !enabled)}
+      />
       <Routes>
         <Route
           path='/register'

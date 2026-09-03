@@ -10,18 +10,22 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/golang-jwt/jwt/v5"
+
+	"webauthn-server/internal/apierrors"
+	"webauthn-server/internal/config"
+	"webauthn-server/internal/timeutil"
+	"webauthn-server/internal/user"
 )
 
-// Claims represents the JWT claims structure
-// Username is exposed to client, UserID is kept server-side for auth lookups
+// Claims represents the JWT claims structure.
+// Role is intentionally not included; authorization uses the database.
 type Claims struct {
 	Username string `json:"username"`
-	UserID   string `json:"-"` // Server-side only, not exposed in token
 	jwt.RegisteredClaims
 }
 
 // JWTAuth middleware validates JWT tokens from cookie or header
-func JWTAuth(secret string) gin.HandlerFunc {
+func JWTAuth(secret string, userRepo user.UserRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tokenString := ""
 
@@ -43,7 +47,7 @@ func JWTAuth(secret string) gin.HandlerFunc {
 		}
 
 		if tokenString == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization token required"})
+			apierrors.Error(c, http.StatusUnauthorized, "AUTHENTICATION_REQUIRED", "Authentication Required", "Authorization token required")
 			c.Abort()
 			return
 		}
@@ -55,22 +59,50 @@ func JWTAuth(secret string) gin.HandlerFunc {
 		})
 
 		if err != nil || !token.Valid {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+			apierrors.Error(c, http.StatusUnauthorized, "INVALID_TOKEN", "Invalid Token", "The authentication token is invalid or expired.")
 			c.Abort()
 			return
 		}
 
-		// Set user info in context
-		c.Set("userId", claims.UserID)
-		c.Set("username", claims.Username)
+		userRow, err := userRepo.FindUserByUsername(c.Request.Context(), claims.Username)
+		if err != nil || userRow == nil {
+			apierrors.Error(c, http.StatusUnauthorized, "USER_NOT_FOUND", "User Not Found", "The authenticated user could not be found.")
+			c.Abort()
+			return
+		}
+
+		// Set authenticated user data once for downstream handlers and middleware.
+		c.Set("userId", userRow.ID)
+		c.Set("userName", claims.Username)
+		c.Set("role", userRow.Role)
 
 		c.Next()
 	}
 }
 
-// SaveAuthToken stores the JWT in a cookie
-func SaveAuthToken(c *gin.Context, tokenString string) {
-	c.SetCookie("auth_token", tokenString, 86400, "/", "", false, true)
+// GetUserID extracts the authenticated user's database ID from context.
+func GetUserID(c *gin.Context) string {
+	userID, exists := c.Get("userId")
+	if !exists {
+		return ""
+	}
+	userIDString, ok := userID.(string)
+	if !ok {
+		return ""
+	}
+	return userIDString
+}
+
+// SaveAuthToken stores the JWT in a cookie with configurable expiry
+func SaveAuthToken(c *gin.Context, tokenString string, cfg *config.Config) {
+	secure := strings.EqualFold(cfg.Environment, "PROD")
+	c.SetCookie("auth_token", tokenString, cfg.AuthTokenExpiry, "/", "", secure, true)
+}
+
+// ClearAuthToken removes the auth token cookie (used for logout)
+func ClearAuthToken(c *gin.Context, cfg *config.Config) {
+	secure := strings.EqualFold(cfg.Environment, "PROD")
+	c.SetCookie("auth_token", "", -1, "/", "", secure, true)
 }
 
 // GetAuthToken reads the JWT from cookie
@@ -82,18 +114,9 @@ func GetAuthToken(c *gin.Context) string {
 	return cookie
 }
 
-// GetUserID extracts user ID from context
-func GetUserID(c *gin.Context) string {
-	userID, exists := c.Get("userId")
-	if !exists {
-		return ""
-	}
-	return userID.(string)
-}
-
-// GetUsername extracts username from context
+// GetUsername extracts userName from context
 func GetUsername(c *gin.Context) string {
-	username, exists := c.Get("username")
+	username, exists := c.Get("userName")
 	if !exists {
 		return ""
 	}
@@ -136,7 +159,7 @@ func GetWebAuthnSession(c *gin.Context, jwtSecret string) (*webauthn.SessionData
 }
 
 // SaveWebAuthnSession stores WebAuthn session data in a JWT cookie
-func SaveWebAuthnSession(c *gin.Context, session webauthn.SessionData, jwtSecret string) error {
+func SaveWebAuthnSession(c *gin.Context, session webauthn.SessionData, jwtSecret string, cfg *config.Config) error {
 	sessionJSON, err := json.Marshal(session)
 	if err != nil {
 		return err
@@ -145,8 +168,8 @@ func SaveWebAuthnSession(c *gin.Context, session webauthn.SessionData, jwtSecret
 	claims := SessionClaims{
 		SessionData: string(sessionJSON),
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(5 * time.Minute)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(timeutil.Now().Add(time.Duration(cfg.WebAuthnSessionExpiry) * time.Second)),
+			IssuedAt:  jwt.NewNumericDate(timeutil.Now()),
 		},
 	}
 
@@ -156,6 +179,13 @@ func SaveWebAuthnSession(c *gin.Context, session webauthn.SessionData, jwtSecret
 		return err
 	}
 
-	c.SetCookie("webauthn_session", tokenString, 300, "/", "", false, true)
+	secure := strings.EqualFold(cfg.Environment, "PROD")
+	c.SetCookie("webauthn_session", tokenString, cfg.WebAuthnSessionExpiry, "/", "", secure, true)
 	return nil
+}
+
+// ClearWebAuthnSession removes the WebAuthn session cookie (used after auth completion)
+func ClearWebAuthnSession(c *gin.Context, cfg *config.Config) {
+	secure := strings.EqualFold(cfg.Environment, "PROD")
+	c.SetCookie("webauthn_session", "", -1, "/", "", secure, true)
 }

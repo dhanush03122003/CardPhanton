@@ -192,14 +192,14 @@ function MyCards() {
                     <button
                       type='button'
                       onClick={() => openEdit(card)}
-                      className='mr-3 text-xs font-medium text-slate-600 hover:text-slate-900 dark:text-slate-300'
+                      className='mr-2 min-h-11 px-2 text-xs font-medium text-slate-600 hover:text-slate-900 dark:text-slate-300'
                     >
                       Update
                     </button>
                     <button
                       type='button'
                       onClick={() => deleteCard(card)}
-                      className='text-xs font-medium text-red-600'
+                      className='min-h-11 px-2 text-xs font-medium text-red-600'
                     >
                       Delete
                     </button>
@@ -212,13 +212,13 @@ function MyCards() {
       )}
       {formOpen && (
         <div
-          className='fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm'
+          className='fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 backdrop-blur-sm md:items-center md:p-4'
           onClick={closeForm}
         >
           <form
             onSubmit={submit}
             onClick={(event) => event.stopPropagation()}
-            className='max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white p-6 shadow-xl dark:bg-slate-900'
+            className='max-h-[95vh] w-full max-w-2xl overflow-y-auto rounded-t-2xl bg-white p-4 shadow-xl dark:bg-slate-900 sm:p-6 md:max-h-[90vh] md:rounded-xl'
           >
             <div className='mb-5 flex items-center justify-between'>
               <h3 className='text-lg font-semibold text-gray-900 dark:text-white'>
@@ -228,7 +228,7 @@ function MyCards() {
                 type='button'
                 onClick={closeForm}
                 aria-label='Close card form'
-                className='flex h-9 w-9 items-center justify-center rounded-full text-xl text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-slate-800 dark:hover:text-white'
+                className='flex h-11 w-11 items-center justify-center rounded-full text-2xl text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-slate-800 dark:hover:text-white'
               >
                 ×
               </button>

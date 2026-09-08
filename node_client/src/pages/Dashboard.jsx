@@ -168,25 +168,25 @@ function Dashboard({ user }) {
           </button>
         </header>
         <nav
-          className='flex gap-1 border-b border-gray-200'
+          className='flex gap-1 overflow-x-auto border-b border-gray-200'
           aria-label='Dashboard sections'
         >
           <button
             onClick={() => setActiveTab("security")}
-            className={`border-b-2 px-4 py-2.5 text-sm font-medium ${activeTab === "security" ? "border-slate-900 text-slate-900" : "border-transparent text-gray-500"}`}
+            className={`min-h-11 shrink-0 whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium ${activeTab === "security" ? "border-slate-900 text-slate-900" : "border-transparent text-gray-500"}`}
           >
             Security
           </button>
           <button
             onClick={() => setActiveTab("my-cards")}
-            className={`border-b-2 px-4 py-2.5 text-sm font-medium ${activeTab === "my-cards" ? "border-slate-900 text-slate-900" : "border-transparent text-gray-500"}`}
+            className={`min-h-11 shrink-0 whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium ${activeTab === "my-cards" ? "border-slate-900 text-slate-900" : "border-transparent text-gray-500"}`}
           >
             My Cards
           </button>
           {isAdmin && (
             <button
               onClick={() => setActiveTab("management")}
-              className={`border-b-2 px-4 py-2.5 text-sm font-medium ${activeTab === "management" ? "border-slate-900 text-slate-900" : "border-transparent text-gray-500"}`}
+              className={`min-h-11 shrink-0 whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium ${activeTab === "management" ? "border-slate-900 text-slate-900" : "border-transparent text-gray-500"}`}
             >
               User Management
             </button>
@@ -194,7 +194,7 @@ function Dashboard({ user }) {
           {isAdmin && (
             <button
               onClick={() => setActiveTab("global-cards")}
-              className={`border-b-2 px-4 py-2.5 text-sm font-medium ${activeTab === "global-cards" ? "border-slate-900 text-slate-900" : "border-transparent text-gray-500"}`}
+              className={`min-h-11 shrink-0 whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium ${activeTab === "global-cards" ? "border-slate-900 text-slate-900" : "border-transparent text-gray-500"}`}
             >
               Global Cards
             </button>

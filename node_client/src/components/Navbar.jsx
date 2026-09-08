@@ -6,8 +6,8 @@ function Navbar({ user, onLogout, darkMode, onToggleTheme }) {
 
   return (
     <nav className='bg-white border-b border-gray-200 dark:bg-slate-950 dark:border-slate-800'>
-      <div className='max-w-7xl mx-auto px-4 sm:px-6 lg:px-8'>
-        <div className='flex justify-between h-16'>
+      <div className='mx-auto w-full max-w-7xl px-3 sm:px-6 lg:px-8'>
+        <div className='flex h-16 items-center justify-between gap-2'>
           <div className='flex items-center'>
             <Link to='/' className='flex items-center space-x-2 group'>
               <div className='w-8 h-8 bg-slate-900 rounded-lg flex items-center justify-center group-hover:bg-slate-800 transition-colors shadow-sm'>
@@ -25,16 +25,16 @@ function Navbar({ user, onLogout, darkMode, onToggleTheme }) {
                   />
                 </svg>
               </div>
-              <span className='text-xl font-bold text-gray-900 tracking-tight dark:text-white'>
+              <span className='text-lg font-bold tracking-tight text-gray-900 sm:text-xl dark:text-white'>
                 WebAuthn
               </span>
             </Link>
           </div>
-          <div className='flex items-center space-x-3'>
+          <div className='flex min-w-0 items-center gap-2 sm:space-x-3'>
             <button
               type='button'
               onClick={onToggleTheme}
-              className='relative flex h-9 w-[68px] items-center rounded-full border border-gray-200 bg-gray-100 p-1 transition-colors hover:border-gray-300 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-slate-600'
+              className='relative flex h-11 w-[68px] shrink-0 items-center rounded-full border border-gray-200 bg-gray-100 p-1 transition-colors hover:border-gray-300 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-slate-600'
               aria-label={
                 darkMode ? "Switch to light mode" : "Switch to dark mode"
               }
@@ -76,7 +76,7 @@ function Navbar({ user, onLogout, darkMode, onToggleTheme }) {
             </button>
             {user ? (
               <>
-                <span className='text-sm font-medium text-gray-500 dark:text-slate-400'>
+                <span className='hidden max-w-[130px] truncate text-sm font-medium text-gray-500 sm:inline dark:text-slate-400'>
                   Welcome,{" "}
                   <span className='text-gray-900 dark:text-white'>
                     {user.username}
@@ -85,7 +85,7 @@ function Navbar({ user, onLogout, darkMode, onToggleTheme }) {
                 <div className='w-px h-4 bg-gray-200 mx-2 dark:bg-slate-700'></div>
                 <button
                   onClick={onLogout}
-                  className='px-3 py-2 text-sm font-medium text-gray-600 hover:text-slate-900 hover:bg-gray-50 rounded-lg transition-colors dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white'
+                  className='min-h-11 whitespace-nowrap rounded-lg px-2 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-slate-900 sm:px-3 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white'
                 >
                   Log out
                 </button>

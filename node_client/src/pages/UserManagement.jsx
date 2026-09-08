@@ -498,11 +498,11 @@ function UserManagement() {
 
       {selectedUser && (
         <div
-          className='fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4'
+          className='fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 backdrop-blur-sm md:items-center md:p-4'
           onClick={() => setSelectedUser(null)}
         >
           <div
-            className='max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-xl bg-white p-6 shadow-xl'
+            className='max-h-[95vh] w-full max-w-4xl overflow-y-auto rounded-t-2xl bg-white p-4 shadow-xl dark:bg-slate-900 sm:p-6 md:max-h-[90vh] md:rounded-xl'
             onClick={(event) => event.stopPropagation()}
           >
             <div className='flex items-start justify-between border-b border-gray-100 pb-4'>
@@ -514,9 +514,10 @@ function UserManagement() {
               </div>
               <button
                 onClick={() => setSelectedUser(null)}
-                className='text-sm text-gray-500 hover:text-gray-900'
+                aria-label='Close user details'
+                className='flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-2xl text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-slate-800 dark:hover:text-white'
               >
-                Close
+                ×
               </button>
             </div>
             {modalError && (

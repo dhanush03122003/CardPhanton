@@ -23,7 +23,7 @@ function PhysicalCard({
           onOpen();
         }
       }}
-      className={`relative w-full ${expanded ? "aspect-[1.58/1] max-w-[620px]" : "min-h-[220px] max-w-[380px] cursor-pointer transition-transform duration-200 hover:-translate-y-1 hover:shadow-[0_24px_55px_rgba(15,23,42,0.35)] sm:min-h-[235px]"} overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br ${theme} p-6 text-white shadow-2xl`}
+      className={`relative w-full ${expanded ? "aspect-[1.58/1] max-w-[620px]" : "min-h-[200px] max-w-[340px] cursor-pointer transition-transform duration-200 hover:-translate-y-1 hover:shadow-[0_24px_55px_rgba(15,23,42,0.35)] sm:min-h-[235px] sm:max-w-[380px]"} overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br ${theme} p-4 text-white shadow-2xl sm:p-6`}
     >
       <div className='flex items-start justify-between'>
         <div>
@@ -44,8 +44,8 @@ function PhysicalCard({
           </p>
         </div>
       </div>
-      <div className='mt-6 flex items-center gap-2'>
-        <p className='whitespace-nowrap font-mono text-lg tracking-widest text-white/90 sm:text-xl'>
+      <div className='mt-5 flex items-center gap-1 sm:mt-6 sm:gap-2'>
+        <p className='whitespace-nowrap font-mono text-sm tracking-[0.12em] text-white/90 sm:text-xl sm:tracking-widest'>
           {formatPan(card.pan)}
         </p>
         <button
@@ -82,7 +82,7 @@ function PhysicalCard({
           )}
         </button>
       </div>
-      <div className='absolute inset-x-6 bottom-6 flex items-end justify-between gap-3'>
+      <div className='absolute inset-x-4 bottom-4 flex items-end justify-between gap-2 sm:inset-x-6 sm:bottom-6 sm:gap-3'>
         <div className='min-w-0'>
           <p className='text-[8px] uppercase text-white/50'>Cardholder</p>
           <p className='truncate text-sm font-medium uppercase text-white'>

@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"webauthn-server/internal/apierrors"
 	"webauthn-server/internal/config"
 )
 
@@ -24,13 +25,13 @@ func NewCardHandler(service *CardService, cfg *config.Config) *CardHandler {
 func (h *CardHandler) GetCards(c *gin.Context) {
 	userID, err := h.service.GetUserIDFromContext(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": ErrMsgUnauthorized})
+		apierrors.Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "Unauthorized", string(ErrMsgUnauthorized))
 		return
 	}
 
 	cards, err := h.service.GetAllCards(c.Request.Context(), userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apierrors.Error(c, http.StatusInternalServerError, "CARDS_FETCH_FAILED", "Cards Fetch Failed", "The cards could not be loaded.")
 		return
 	}
 
@@ -65,13 +66,13 @@ type CreateCardRequest struct {
 func (h *CardHandler) CreateCard(c *gin.Context) {
 	userID, err := h.service.GetUserIDFromContext(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": ErrMsgUnauthorized})
+		apierrors.Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "Unauthorized", string(ErrMsgUnauthorized))
 		return
 	}
 
 	var req CreateCardRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apierrors.Error(c, http.StatusBadRequest, "INVALID_CARD_REQUEST", "Invalid Card Request", "The card request is invalid.")
 		return
 	}
 
@@ -129,19 +130,19 @@ type UpdateCardRequest struct {
 func (h *CardHandler) UpdateCard(c *gin.Context) {
 	userID, err := h.service.GetUserIDFromContext(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": ErrMsgUnauthorized})
+		apierrors.Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "Unauthorized", string(ErrMsgUnauthorized))
 		return
 	}
 
 	cardID := c.Param("id")
 	if cardID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": ErrMsgCardIDRequired})
+		apierrors.Error(c, http.StatusBadRequest, "CARD_ID_REQUIRED", "Card ID Required", string(ErrMsgCardIDRequired))
 		return
 	}
 
 	var req UpdateCardRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apierrors.Error(c, http.StatusBadRequest, "INVALID_CARD_REQUEST", "Invalid Card Request", "The card request is invalid.")
 		return
 	}
 
@@ -187,13 +188,13 @@ func (h *CardHandler) UpdateCard(c *gin.Context) {
 func (h *CardHandler) DeleteCard(c *gin.Context) {
 	userID, err := h.service.GetUserIDFromContext(c)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": ErrMsgUnauthorized})
+		apierrors.Error(c, http.StatusUnauthorized, "UNAUTHORIZED", "Unauthorized", string(ErrMsgUnauthorized))
 		return
 	}
 
 	cardID := c.Param("id")
 	if cardID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": ErrMsgCardIDRequired})
+		apierrors.Error(c, http.StatusBadRequest, "CARD_ID_REQUIRED", "Card ID Required", string(ErrMsgCardIDRequired))
 		return
 	}
 

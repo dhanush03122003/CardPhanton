@@ -19,6 +19,7 @@ import (
 	"github.com/oschwald/geoip2-golang"
 
 	"webauthn-server/internal/api/middleware"
+	"webauthn-server/internal/apierrors"
 	"webauthn-server/internal/audit"
 	"webauthn-server/internal/config"
 	"webauthn-server/internal/timeutil"
@@ -91,7 +92,7 @@ func (h *AuthHandler) GenerateRegistrationOptions(c *gin.Context) {
 
 	regData, err := h.webAuthn.BeginRegistration(userIDStr, username, existingCreds)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apierrors.Error(c, http.StatusInternalServerError, "DATABASE_ERROR", "Database Error", "The request could not be completed.")
 		return
 	}
 
@@ -113,7 +114,7 @@ func (h *AuthHandler) VerifyRegistration(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apierrors.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid Request", "The request body is invalid.")
 		return
 	}
 
@@ -259,7 +260,7 @@ func (h *AuthHandler) GenerateAuthenticationOptions(c *gin.Context) {
 
 	userRow, err := h.userRepo.FindUserByUsername(ctx, username)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apierrors.Error(c, http.StatusInternalServerError, "WEBAUTHN_ERROR", "WebAuthn Error", "The WebAuthn operation could not be completed.")
 		return
 	}
 	if userRow == nil {
@@ -307,7 +308,7 @@ func (h *AuthHandler) VerifyAuthentication(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		apierrors.Error(c, http.StatusBadRequest, "INVALID_REQUEST", "Invalid Request", "The request body is invalid.")
 		return
 	}
 
@@ -315,13 +316,13 @@ func (h *AuthHandler) VerifyAuthentication(c *gin.Context) {
 
 	sessionData, err := middleware.GetWebAuthnSession(c, string(h.jwtSecret))
 	if err != nil || sessionData == nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": ErrMsgAuthenticationSession})
+		apierrors.Error(c, http.StatusUnauthorized, "AUTHENTICATION_SESSION_EXPIRED", "Authentication Session Expired", string(ErrMsgAuthenticationSession))
 		return
 	}
 
 	parsedResponse, err := protocol.ParseCredentialRequestResponseBody(bytes.NewReader(body.Verification))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": string(ErrMsgInvalidResponseFormat) + err.Error()})
+		apierrors.Error(c, http.StatusBadRequest, "INVALID_WEBAUTHN_RESPONSE", "Invalid WebAuthn Response", string(ErrMsgInvalidResponseFormat))
 		return
 	}
 
@@ -329,27 +330,27 @@ func (h *AuthHandler) VerifyAuthentication(c *gin.Context) {
 
 	rawIDBytes, err := base64.RawURLEncoding.DecodeString(credentialIDStr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": ErrMsgInvalidCredentialID})
+		apierrors.Error(c, http.StatusBadRequest, "INVALID_CREDENTIAL_ID", "Invalid Credential ID", string(ErrMsgInvalidCredentialID))
 		return
 	}
 
 	authenticator, err := h.repo.FindAuthenticatorByCredentialID(ctx, credentialIDStr)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": ErrMsgPasskeyLookup})
+		apierrors.Error(c, http.StatusInternalServerError, "PASSKEY_LOOKUP_FAILED", "Passkey Lookup Failed", string(ErrMsgPasskeyLookup))
 		return
 	}
 	if authenticator == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": ErrMsgPasskeyNotRecognized})
+		apierrors.Error(c, http.StatusBadRequest, "PASSKEY_NOT_RECOGNIZED", "Passkey Not Recognized", string(ErrMsgPasskeyNotRecognized))
 		return
 	}
 
 	userRow, err := h.userRepo.FindUserByID(ctx, authenticator.UserID)
 	if err != nil || userRow == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": ErrMsgUserNotFound})
+		apierrors.Error(c, http.StatusBadRequest, "USER_NOT_FOUND", "User Not Found", string(ErrMsgUserNotFound))
 		return
 	}
 	if userRow.Status != "ENABLED" {
-		c.JSON(http.StatusForbidden, gin.H{"error": ErrMsgPendingApproval})
+		apierrors.Error(c, http.StatusForbidden, "PENDING_ADMIN_APPROVAL", "Account Pending Approval", string(ErrMsgPendingApproval))
 		return
 	}
 
@@ -375,7 +376,7 @@ func (h *AuthHandler) VerifyAuthentication(c *gin.Context) {
 
 	credential, err := h.webAuthn.ValidateLogin(userForAuth, *sessionData, parsedResponse)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": string(ErrMsgAuthenticationFailed) + err.Error()})
+		apierrors.Error(c, http.StatusBadRequest, "AUTHENTICATION_FAILED", "Authentication Failed", string(ErrMsgAuthenticationFailed))
 		return
 	}
 
@@ -434,7 +435,7 @@ func (h *AuthHandler) GetUser(c *gin.Context) {
 	ctx := c.Request.Context()
 	userRow, err := h.userRepo.FindUserByID(ctx, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apierrors.Error(c, http.StatusInternalServerError, "DATABASE_ERROR", "Database Error", "The request could not be completed.")
 		return
 	}
 	if userRow == nil {
@@ -465,7 +466,7 @@ func (h *AuthHandler) GetAuthenticators(c *gin.Context) {
 	ctx := c.Request.Context()
 	authenticators, err := h.repo.GetAuthenticatorsForUser(ctx, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		apierrors.Error(c, http.StatusInternalServerError, "WEBAUTHN_ERROR", "WebAuthn Error", "The WebAuthn operation could not be completed.")
 		return
 	}
 

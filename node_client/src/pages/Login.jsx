@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { startAuthentication } from "@simplewebauthn/browser";
+import { apiRequest } from "../api";
 
 function Login({ onLoginSuccess }) {
   const [username, setUsername] = useState("");
@@ -16,13 +17,9 @@ function Login({ onLoginSuccess }) {
         await window.PublicKeyCredential?.isConditionalMediationAvailable?.();
       if (!isCUIAvailable) return;
 
-      const response = await fetch("/api/auth/generate-conditional-options", {
-        credentials: "include", // Include HTTP-only cookies
-      });
-      if (!response.ok) return;
-
-      // --- FIX 1: Unwrap the publicKey object from the Go backend ---
-      const responseBody = await response.json();
+      const responseBody = await apiRequest(
+        "/api/auth/generate-conditional-options",
+      );
       const options = responseBody.publicKey;
 
       const authenticationResult = await startAuthentication({
@@ -31,28 +28,15 @@ function Login({ onLoginSuccess }) {
       });
 
       setLoading(true);
-      const verifyResponse = await fetch("/api/auth/verify-authentication", {
+      const userData = await apiRequest("/api/auth/verify-authentication", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include", // Include HTTP-only cookies
         body: JSON.stringify({ verification: authenticationResult }),
       });
 
-      if (verifyResponse.ok) {
+      if (userData) {
         // Fetch user data after successful authentication
-        const userResponse = await fetch("/api/auth/me", {
-          credentials: "include",
-        });
-        if (userResponse.ok) {
-          const userData = await userResponse.json();
-          // Extract user object from nested response structure
-          onLoginSuccess(userData.user);
-        } else {
-          setError("Failed to fetch user data.");
-        }
-      } else {
-        const problem = await verifyResponse.json().catch(() => ({}));
-        setError(problem.detail || "Autofill login verification rejected.");
+        const profile = await apiRequest("/api/auth/me");
+        onLoginSuccess(profile.user);
       }
     } catch (error) {
       console.log("Conditional UI listener status:", error.message);
@@ -74,51 +58,25 @@ function Login({ onLoginSuccess }) {
 
     setLoading(true);
     try {
-      const response = await fetch(
+      const responseBody = await apiRequest(
         `/api/auth/generate-authentication-options?username=${encodeURIComponent(cleanUsername)}`,
-        {
-          credentials: "include", // Include HTTP-only cookies
-        },
       );
-      if (!response.ok) {
-        const problem = await response.json().catch(() => ({}));
-        throw new Error(problem.detail || "User not found or unavailable.");
-      }
-
-      // --- FIX 3: Unwrap the publicKey object from the Go backend ---
-      const responseBody = await response.json();
       const options = responseBody.publicKey;
 
       const authenticationResult = await startAuthentication({
         optionsJSON: options,
       });
 
-      const verifyResponse = await fetch("/api/auth/verify-authentication", {
+      await apiRequest("/api/auth/verify-authentication", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include", // Include HTTP-only cookies
         body: JSON.stringify({
           username: cleanUsername,
           verification: authenticationResult,
         }),
       });
 
-      if (verifyResponse.ok) {
-        // Fetch user data after successful authentication
-        const userResponse = await fetch("/api/auth/me", {
-          credentials: "include",
-        });
-        if (userResponse.ok) {
-          const userData = await userResponse.json();
-          // Extract user object from nested response structure
-          onLoginSuccess(userData.user);
-        } else {
-          setError("Failed to fetch user data.");
-        }
-      } else {
-        const problem = await verifyResponse.json().catch(() => ({}));
-        setError(problem.detail || "Login failed. Key not recognized.");
-      }
+      const profile = await apiRequest("/api/auth/me");
+      onLoginSuccess(profile.user);
     } catch (error) {
       setError(error.message);
     } finally {

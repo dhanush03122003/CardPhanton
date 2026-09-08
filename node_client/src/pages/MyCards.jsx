@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { apiRequest } from "../api";
+import { useToast } from "../components/Toast";
 
 const emptyCard = {
   pan: "",
@@ -22,6 +23,7 @@ function MyCards() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const showToast = useToast();
 
   const loadCards = async () => {
     setLoading(true);
@@ -30,6 +32,7 @@ function MyCards() {
       setCards(Array.isArray(data?.cards) ? data.cards : []);
     } catch (requestError) {
       setError(requestError.message);
+      showToast(requestError.message, "error");
     } finally {
       setLoading(false);
     }
@@ -38,35 +41,27 @@ function MyCards() {
   useEffect(() => {
     loadCards();
   }, []);
-
-  const updateField = (event) => {
-    const { name, value } = event.target;
-    setForm((current) => ({ ...current, [name]: value }));
-  };
-
-  const openCreate = () => {
-    setFormOpen(true);
+  const updateField = (event) =>
+    setForm((current) => ({
+      ...current,
+      [event.target.name]: event.target.value,
+    }));
+  const closeForm = () => {
+    setFormOpen(false);
     setEditingId(null);
     setForm(emptyCard);
-    setError("");
   };
-
-  const openEdit = (card) => {
-    setFormOpen(true);
-    setEditingId(card.id);
-    setForm({
-      pan: card.pan || "",
-      cardholder_name: card.cardholder_name || "",
-      bank_name: card.bank_name || "",
-      product_name: card.product_name || "",
-      payment_method_type: card.payment_method_type || "Credit",
-      card_brand: card.card_brand || "Visa",
-      linked_phone_number: card.linked_phone_number || "",
-      exp_month: card.exp_month || "",
-      exp_year: card.exp_year || "",
-      cvv: card.cvv || "",
-    });
+  const openCreate = () => {
+    setForm(emptyCard);
+    setEditingId(null);
     setError("");
+    setFormOpen(true);
+  };
+  const openEdit = (card) => {
+    setEditingId(card.id);
+    setForm({ ...emptyCard, ...card });
+    setError("");
+    setFormOpen(true);
   };
 
   const submit = async (event) => {
@@ -74,24 +69,27 @@ function MyCards() {
     setSaving(true);
     setError("");
     try {
-      const path = editingId
-        ? `/api/auth/cards/${editingId}`
-        : "/api/auth/cards";
-      await apiRequest(path, {
-        method: editingId ? "PUT" : "POST",
-        body: JSON.stringify({
-          ...form,
-          exp_month: Number(form.exp_month),
-          exp_year: Number(form.exp_year),
-          cvv: Number(form.cvv),
-        }),
-      });
+      await apiRequest(
+        editingId ? `/api/auth/cards/${editingId}` : "/api/auth/cards",
+        {
+          method: editingId ? "PUT" : "POST",
+          body: JSON.stringify({
+            ...form,
+            exp_month: Number(form.exp_month),
+            exp_year: Number(form.exp_year),
+            cvv: Number(form.cvv),
+          }),
+        },
+      );
       await loadCards();
-      setFormOpen(false);
-      setEditingId(null);
-      setForm(emptyCard);
+      showToast(
+        editingId ? "Card updated successfully." : "Card created successfully.",
+        "success",
+      );
+      closeForm();
     } catch (requestError) {
       setError(requestError.message);
+      showToast(requestError.message, "error");
     } finally {
       setSaving(false);
     }
@@ -102,10 +100,23 @@ function MyCards() {
     try {
       await apiRequest(`/api/auth/cards/${card.id}`, { method: "DELETE" });
       setCards((current) => current.filter((item) => item.id !== card.id));
+      showToast("Card deleted successfully.", "success");
     } catch (requestError) {
       setError(requestError.message);
+      showToast(requestError.message, "error");
     }
   };
+
+  const fields = [
+    ["pan", "PAN", "text", "16 digits"],
+    ["cardholder_name", "Cardholder Name", "text", "Name on card"],
+    ["bank_name", "Bank", "text", "Axis Bank"],
+    ["product_name", "Product Name", "text", "Flipkart Axis"],
+    ["linked_phone_number", "Linked Phone", "tel", "10-digit mobile number"],
+    ["exp_month", "Expiry Month", "number", "MM"],
+    ["exp_year", "Expiry Year", "number", "YYYY"],
+    ["cvv", "CVV", "password", "3 digits"],
+  ];
 
   return (
     <section className='card'>
@@ -130,14 +141,21 @@ function MyCards() {
       {loading ? (
         <div className='h-24 animate-pulse rounded-lg bg-gray-50 dark:bg-slate-800' />
       ) : cards.length === 0 ? (
-        <p className='py-12 text-center text-sm text-gray-500'>
-          No cards added yet.
-        </p>
+        <div className='py-12 text-center text-sm text-gray-500'>
+          <p className='font-medium'>No cards added yet.</p>
+          <button
+            type='button'
+            onClick={openCreate}
+            className='mt-3 text-sm font-semibold text-blue-600 hover:text-blue-700'
+          >
+            Add your first card
+          </button>
+        </div>
       ) : (
-        <div className='overflow-x-auto'>
+        <div className='overflow-x-auto rounded-xl border border-gray-200 dark:border-slate-700'>
           <table className='w-full text-left text-sm'>
             <thead>
-              <tr className='border-b border-gray-200 text-xs uppercase tracking-wide text-gray-500 dark:border-slate-700'>
+              <tr className='sticky top-0 z-10 border-b border-gray-200 bg-white text-xs uppercase tracking-wide text-gray-500 dark:border-slate-700 dark:bg-slate-900'>
                 <th className='px-3 py-3'>Bank / Product</th>
                 <th className='px-3 py-3'>Cardholder</th>
                 <th className='px-3 py-3'>Last 4</th>
@@ -146,9 +164,12 @@ function MyCards() {
                 <th className='px-3 py-3 text-right'>Actions</th>
               </tr>
             </thead>
-            <tbody className='divide-y divide-gray-100'>
+            <tbody>
               {cards.map((card) => (
-                <tr key={card.id}>
+                <tr
+                  key={card.id}
+                  className='border-b border-gray-100 transition-colors hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/70'
+                >
                   <td className='px-3 py-4 font-medium text-gray-900 dark:text-white'>
                     {card.bank_name}
                     <div className='text-xs text-gray-500'>
@@ -191,12 +212,8 @@ function MyCards() {
       )}
       {formOpen && (
         <div
-          className='fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4'
-          onClick={() => {
-            setFormOpen(false);
-            setEditingId(null);
-            setForm(emptyCard);
-          }}
+          className='fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm'
+          onClick={closeForm}
         >
           <form
             onSubmit={submit}
@@ -209,32 +226,15 @@ function MyCards() {
               </h3>
               <button
                 type='button'
-                onClick={() => {
-                  setFormOpen(false);
-                  setEditingId(null);
-                  setForm(emptyCard);
-                }}
-                className='text-sm text-gray-500'
+                onClick={closeForm}
+                aria-label='Close card form'
+                className='flex h-9 w-9 items-center justify-center rounded-full text-xl text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-slate-800 dark:hover:text-white'
               >
-                Close
+                ×
               </button>
             </div>
             <div className='grid grid-cols-1 gap-4 sm:grid-cols-2'>
-              {[
-                ["pan", "PAN", "text", "16 digits"],
-                ["cardholder_name", "Cardholder Name", "text", "Name on card"],
-                ["bank_name", "Bank", "text", "Axis Bank"],
-                ["product_name", "Product Name", "text", "Flipkart Axis"],
-                [
-                  "linked_phone_number",
-                  "Linked Phone",
-                  "tel",
-                  "10-digit mobile number",
-                ],
-                ["exp_month", "Expiry Month", "number", "MM"],
-                ["exp_year", "Expiry Year", "number", "YYYY"],
-                ["cvv", "CVV", "password", "3 digits"],
-              ].map(([name, label, type, placeholder]) => (
+              {fields.map(([name, label, type, placeholder]) => (
                 <label
                   key={name}
                   className='text-sm font-medium text-gray-700 dark:text-slate-300'
@@ -243,7 +243,7 @@ function MyCards() {
                   <input
                     name={name}
                     type={type}
-                    value={form[name]}
+                    value={form[name] || ""}
                     onChange={updateField}
                     placeholder={placeholder}
                     required

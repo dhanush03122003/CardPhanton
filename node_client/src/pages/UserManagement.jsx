@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ApiError } from "../api";
+import { useToast } from "../components/Toast";
 
 const getDeviceInfo = (auth, aaguidMap) => {
   const attachmentType = auth.attachmentType || auth.attachment_type;
@@ -58,6 +59,7 @@ function UserManagement() {
   const [expandedLogId, setExpandedLogId] = useState(null);
   const [userLogsExpanded, setUserLogsExpanded] = useState(true);
   const [adminLogsExpanded, setAdminLogsExpanded] = useState(true);
+  const showToast = useToast();
 
   const userAuditLogs = details
     ? [...details.user_audit_logs].sort(
@@ -314,11 +316,12 @@ function UserManagement() {
       const response = await fetch(path, { method, credentials: "include" });
       const data = await response.json();
       if (!response.ok) throw new ApiError(data, response.status);
-      alert(successMessage);
+      showToast(successMessage, "success");
       await loadUsers();
       if (selectedUser) await openUser(selectedUser);
     } catch (requestError) {
       setModalError(requestError.message);
+      showToast(requestError.message, "error");
     } finally {
       setActionLoading(false);
     }
@@ -343,6 +346,7 @@ function UserManagement() {
       setDetails(null);
     } catch (requestError) {
       setModalError(requestError.message);
+      showToast(requestError.message, "error");
     } finally {
       setActionLoading(false);
     }

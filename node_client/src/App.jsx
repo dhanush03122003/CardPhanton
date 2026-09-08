@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import Navbar from "./components/Navbar";
+import { ToastProvider } from "./components/Toast";
 import Register from "./pages/Register";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
@@ -75,38 +76,44 @@ function App() {
   }
 
   return (
-    <div className='min-h-screen'>
-      <Navbar
-        user={user}
-        onLogout={handleLogout}
-        darkMode={darkMode}
-        onToggleTheme={() => setDarkMode((enabled) => !enabled)}
-      />
-      <Routes>
-        <Route
-          path='/register'
-          element={user ? <Navigate to='/dashboard' /> : <Register />}
+    <ToastProvider>
+      <div className='flex h-screen flex-col overflow-hidden bg-gray-50 dark:bg-slate-950'>
+        <Navbar
+          user={user}
+          onLogout={handleLogout}
+          darkMode={darkMode}
+          onToggleTheme={() => setDarkMode((enabled) => !enabled)}
         />
-        <Route
-          path='/login'
-          element={
-            user ? (
-              <Navigate to='/dashboard' />
-            ) : (
-              <Login onLoginSuccess={handleLogin} />
-            )
-          }
-        />
-        <Route
-          path='/dashboard'
-          element={user ? <Dashboard user={user} /> : <Navigate to='/login' />}
-        />
-        <Route
-          path='/'
-          element={<Navigate to={user ? "/dashboard" : "/login"} />}
-        />
-      </Routes>
-    </div>
+        <main className='min-h-0 flex-1 overflow-y-auto'>
+          <Routes>
+            <Route
+              path='/register'
+              element={user ? <Navigate to='/dashboard' /> : <Register />}
+            />
+            <Route
+              path='/login'
+              element={
+                user ? (
+                  <Navigate to='/dashboard' />
+                ) : (
+                  <Login onLoginSuccess={handleLogin} />
+                )
+              }
+            />
+            <Route
+              path='/dashboard'
+              element={
+                user ? <Dashboard user={user} /> : <Navigate to='/login' />
+              }
+            />
+            <Route
+              path='/'
+              element={<Navigate to={user ? "/dashboard" : "/login"} />}
+            />
+          </Routes>
+        </main>
+      </div>
+    </ToastProvider>
   );
 }
 

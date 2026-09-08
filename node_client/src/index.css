@@ -31,6 +31,39 @@
 }
 
 @layer base {
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    transition: all 200ms ease-in-out;
+  }
+  button,
+  a {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 2px #3b82f6,
+      0 0 0 4px rgb(255 255 255 / 0.9);
+  }
+  .dark button:focus-visible,
+  .dark a:focus-visible,
+  .dark input:focus-visible,
+  .dark select:focus-visible,
+  .dark textarea:focus-visible {
+    box-shadow:
+      0 0 0 2px #60a5fa,
+      0 0 0 4px #0f172a;
+  }
   .dark body {
     background-color: #0f172a;
     color: #e2e8f0;

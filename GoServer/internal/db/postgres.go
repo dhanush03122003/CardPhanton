@@ -135,9 +135,15 @@ func (db *DB) InitializeDatabase(ctx context.Context) error {
 	rows.Close()
 
 	if !statusColumnExists {
-		if _, err := db.pool.ExecContext(ctx, "ALTER TABLE users ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'ENABLED'"); err != nil {
+		if _, err := db.pool.ExecContext(ctx, "ALTER TABLE users ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'PENDING_APPROVAL'"); err != nil {
 			return fmt.Errorf("failed to add users status column: %w", err)
 		}
+	}
+	if _, err := db.pool.ExecContext(ctx, "UPDATE users SET status = 'ACTIVE' WHERE status = 'ENABLED'"); err != nil {
+		return fmt.Errorf("failed to migrate enabled user statuses: %w", err)
+	}
+	if _, err := db.pool.ExecContext(ctx, "UPDATE users SET status = 'PENDING_APPROVAL' WHERE status = 'DISABLED'"); err != nil {
+		return fmt.Errorf("failed to migrate disabled user statuses: %w", err)
 	}
 
 	rows, err = db.pool.QueryContext(ctx, "PRAGMA table_info(cards)")
@@ -195,6 +201,47 @@ func (db *DB) InitializeDatabase(ctx context.Context) error {
 		if _, err := db.pool.ExecContext(ctx, "ALTER TABLE cards ADD COLUMN linked_phone_number TEXT NOT NULL DEFAULT '9000000000'"); err != nil {
 			return fmt.Errorf("failed to add cards phone column: %w", err)
 		}
+	}
+
+	rows, err = db.pool.QueryContext(ctx, "PRAGMA table_info(admin_audit_logs)")
+	if err != nil {
+		return fmt.Errorf("failed to inspect admin audit columns: %w", err)
+	}
+	adminNameColumnExists := false
+	targetNameColumnExists := false
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			rows.Close()
+			return fmt.Errorf("failed to inspect admin audit columns: %w", err)
+		}
+		if name == "admin_user_name" {
+			adminNameColumnExists = true
+		}
+		if name == "target_user_name" {
+			targetNameColumnExists = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("failed to read admin audit columns: %w", err)
+	}
+	rows.Close()
+
+	if !adminNameColumnExists {
+		if _, err := db.pool.ExecContext(ctx, "ALTER TABLE admin_audit_logs ADD COLUMN admin_user_name TEXT NOT NULL DEFAULT ''"); err != nil {
+			return fmt.Errorf("failed to add admin audit username column: %w", err)
+		}
+	}
+	if !targetNameColumnExists {
+		if _, err := db.pool.ExecContext(ctx, "ALTER TABLE admin_audit_logs ADD COLUMN target_user_name TEXT NOT NULL DEFAULT ''"); err != nil {
+			return fmt.Errorf("failed to add target audit username column: %w", err)
+		}
+	}
+	if _, err := db.pool.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_admin_audit_logs_target_user_name ON admin_audit_logs(target_user_name)"); err != nil {
+		return fmt.Errorf("failed to create admin audit username index: %w", err)
 	}
 
 	fmt.Println("Database tables initialized successfully")

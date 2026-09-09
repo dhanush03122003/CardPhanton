@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 
@@ -59,7 +60,7 @@ func (s *Service) GetUserDetails(ctx context.Context, userID string) (*UserDetai
 	if err != nil {
 		return nil, err
 	}
-	adminLogs, err := s.repo.GetAdminLogsByTargetUser(ctx, userID)
+	adminLogs, err := s.repo.GetAdminLogsByTargetUser(ctx, item.ID, item.Username)
 	if err != nil {
 		return nil, err
 	}
@@ -74,40 +75,72 @@ func (s *Service) GetUserDetails(ctx context.Context, userID string) (*UserDetai
 }
 
 func (s *Service) ApproveUser(ctx context.Context, adminID, userID string) error {
-	if err := s.ensureUser(ctx, userID); err != nil {
+	admin, target, err := s.getActionUsers(ctx, adminID, userID)
+	if err != nil {
 		return err
 	}
-	if err := s.repo.UpdateUserStatus(ctx, userID, "ENABLED"); err != nil {
+	if target.Status != user.StatusPendingApproval {
+		return ErrInvalidStatusTransition
+	}
+	if err := s.repo.UpdateUserStatus(ctx, userID, user.StatusActive); err != nil {
 		return err
 	}
-	return s.repo.LogAdminAction(ctx, adminID, userID, string(audit.AdminActionUserApproved), "User approved")
+	return s.repo.LogAdminAction(ctx, admin.ID, admin.Username, target.ID, target.Username, string(audit.AdminActionUserApproved), "User approved")
 }
 
 func (s *Service) SuspendUser(ctx context.Context, adminID, userID string) error {
-	if err := s.ensureUser(ctx, userID); err != nil {
+	admin, target, err := s.getActionUsers(ctx, adminID, userID)
+	if err != nil {
 		return err
 	}
-	if err := s.repo.UpdateUserStatus(ctx, userID, "DISABLED"); err != nil {
+	if target.Status != user.StatusActive {
+		return ErrInvalidStatusTransition
+	}
+	if err := s.repo.UpdateUserStatus(ctx, userID, user.StatusSuspended); err != nil {
 		return err
 	}
-	return s.repo.LogAdminAction(ctx, adminID, userID, string(audit.AdminActionUserSuspended), "User suspended")
+	return s.repo.LogAdminAction(ctx, admin.ID, admin.Username, target.ID, target.Username, string(audit.AdminActionUserSuspended), "User suspended")
+}
+
+func (s *Service) ReactivateUser(ctx context.Context, adminID, userID string) error {
+	admin, target, err := s.getActionUsers(ctx, adminID, userID)
+	if err != nil {
+		return err
+	}
+	if target.Status != user.StatusSuspended {
+		return ErrInvalidStatusTransition
+	}
+	if err := s.repo.UpdateUserStatus(ctx, userID, user.StatusActive); err != nil {
+		return err
+	}
+	return s.repo.LogAdminAction(ctx, admin.ID, admin.Username, target.ID, target.Username, string(audit.AdminActionUserReactivated), "User re-enabled")
+}
+
+func (s *Service) RejectUser(ctx context.Context, adminID, userID string) error {
+	admin, target, err := s.getActionUsers(ctx, adminID, userID)
+	if err != nil {
+		return err
+	}
+	if target.Status != user.StatusPendingApproval {
+		return ErrInvalidStatusTransition
+	}
+	return s.repo.DeleteUserDataAndLog(ctx, admin.ID, admin.Username, target.ID, target.Username, string(audit.AdminActionUserRejected), "User rejected and account deleted")
 }
 
 func (s *Service) DeleteUser(ctx context.Context, adminID, userID string) error {
-	if err := s.ensureUser(ctx, userID); err != nil {
+	admin, target, err := s.getActionUsers(ctx, adminID, userID)
+	if err != nil {
 		return err
 	}
-	if err := s.repo.DeleteAuthenticatorsByUserID(ctx, userID); err != nil {
-		return err
+	if target.Status == user.StatusPendingApproval {
+		return ErrInvalidStatusTransition
 	}
-	if err := s.repo.DeleteUser(ctx, userID); err != nil {
-		return err
-	}
-	return s.repo.LogAdminAction(ctx, adminID, userID, string(audit.AdminActionUserDeleted), "User deleted")
+	return s.repo.DeleteUserDataAndLog(ctx, admin.ID, admin.Username, target.ID, target.Username, string(audit.AdminActionUserDeleted), "User deleted")
 }
 
 func (s *Service) DeleteAuthenticator(ctx context.Context, adminID, userID, authID string) error {
-	if err := s.ensureUser(ctx, userID); err != nil {
+	admin, target, err := s.getActionUsers(ctx, adminID, userID)
+	if err != nil {
 		return err
 	}
 	count, err := s.repo.GetAuthenticatorCount(ctx, userID)
@@ -124,7 +157,39 @@ func (s *Service) DeleteAuthenticator(ctx context.Context, adminID, userID, auth
 	if !deleted {
 		return ErrAuthenticatorNotFound
 	}
-	return s.repo.LogAdminAction(ctx, adminID, userID, string(audit.AdminActionAuthDeleted), fmt.Sprintf("Authenticator deleted: %s", authID))
+	return s.repo.LogAdminAction(ctx, admin.ID, admin.Username, target.ID, target.Username, string(audit.AdminActionAuthDeleted), fmt.Sprintf("Authenticator deleted: %s", authID))
+}
+
+func (s *Service) DeleteCard(ctx context.Context, adminID, userID, cardID string) error {
+	admin, target, err := s.getActionUsers(ctx, adminID, userID)
+	if err != nil {
+		return err
+	}
+	if err := s.repo.DeleteCard(ctx, cardID, userID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrCardNotFound
+		}
+		return err
+	}
+	return s.repo.LogAdminAction(ctx, admin.ID, admin.Username, target.ID, target.Username, string(audit.AdminActionCardDeleted), fmt.Sprintf("Card deleted: %s", cardID))
+}
+
+func (s *Service) getActionUsers(ctx context.Context, adminID, targetID string) (*user.User, *user.User, error) {
+	admin, err := s.repo.FindUserByID(ctx, adminID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if admin == nil {
+		return nil, nil, ErrUserNotFound
+	}
+	target, err := s.repo.FindUserByID(ctx, targetID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if target == nil {
+		return nil, nil, ErrUserNotFound
+	}
+	return admin, target, nil
 }
 
 func (s *Service) ensureUser(ctx context.Context, userID string) error {
@@ -140,3 +205,5 @@ func (s *Service) ensureUser(ctx context.Context, userID string) error {
 
 var ErrLastAuthenticator = errors.New("cannot delete the last authenticator")
 var ErrAuthenticatorNotFound = errors.New("authenticator not found")
+var ErrInvalidStatusTransition = errors.New("invalid user status transition")
+var ErrCardNotFound = errors.New("card not found")

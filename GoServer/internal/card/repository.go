@@ -16,6 +16,7 @@ type Repository interface {
 	SaveCardUnderUserID(ctx context.Context, card *Card) error
 	UpdateCardDetails(ctx context.Context, card *Card) error
 	DeleteCard(ctx context.Context, cardID, userID string) error
+	DeleteCardsByUserID(ctx context.Context, userID string) error
 	GetCardByID(ctx context.Context, cardID string) (*Card, error)
 	GetCardByPAN(ctx context.Context, pan string) (*Card, error)
 }
@@ -143,6 +144,12 @@ func (r *SQLiteCardRepository) UpdateCardDetails(ctx context.Context, card *Card
 	return err
 }
 
+// DeleteCardsByUserID deletes all cards owned by a user.
+func (r *SQLiteCardRepository) DeleteCardsByUserID(ctx context.Context, userID string) error {
+	_, err := r.pool.ExecContext(ctx, "DELETE FROM cards WHERE user_id = ?", userID)
+	return err
+}
+
 // DeleteCard deletes a card by ID (ensures it belongs to the user).
 func (r *SQLiteCardRepository) DeleteCard(ctx context.Context, cardID, userID string) error {
 	result, err := r.pool.ExecContext(ctx,
@@ -170,7 +177,7 @@ func (r *SQLiteCardRepository) DeleteCard(ctx context.Context, cardID, userID st
 func (r *SQLiteCardRepository) GetCardByID(ctx context.Context, cardID string) (*Card, error) {
 	var card Card
 	err := r.pool.QueryRowContext(ctx,
-		"SELECT id, user_id, PAN, cardholder_name, bank_name, payment_method_type, card_brand, product_name, exp_month, exp_year, cvv, created_at, updated_at FROM cards WHERE id = ?",
+		"SELECT id, user_id, PAN, cardholder_name, bank_name, payment_method_type, card_brand, product_name, linked_phone_number, exp_month, exp_year, cvv, created_at, updated_at FROM cards WHERE id = ?",
 		cardID,
 	).Scan(
 		&card.ID,
@@ -203,7 +210,7 @@ func (r *SQLiteCardRepository) GetCardByID(ctx context.Context, cardID string) (
 func (r *SQLiteCardRepository) GetCardByPAN(ctx context.Context, pan string) (*Card, error) {
 	var card Card
 	err := r.pool.QueryRowContext(ctx,
-		"SELECT id, user_id, PAN, cardholder_name, bank_name, payment_method_type, card_brand, product_name, exp_month, exp_year, cvv, created_at, updated_at FROM cards WHERE PAN = ?",
+		"SELECT id, user_id, PAN, cardholder_name, bank_name, payment_method_type, card_brand, product_name, linked_phone_number, exp_month, exp_year, cvv, created_at, updated_at FROM cards WHERE PAN = ?",
 		pan,
 	).Scan(
 		&card.ID,

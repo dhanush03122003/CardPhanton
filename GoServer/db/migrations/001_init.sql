@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     username TEXT UNIQUE NOT NULL,
     role VARCHAR(20) NOT NULL DEFAULT 'USER',
-    status VARCHAR(20) NOT NULL DEFAULT 'ENABLED',
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING_APPROVAL',
     created_at TIMESTAMP NOT NULL
 );
 
@@ -42,7 +42,9 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 CREATE TABLE IF NOT EXISTS admin_audit_logs (
     id TEXT PRIMARY KEY,
     admin_user_id TEXT NOT NULL,
+    admin_user_name TEXT NOT NULL DEFAULT '',
     target_user_id TEXT,
+    target_user_name TEXT NOT NULL DEFAULT '',
     action_type TEXT NOT NULL,
     details TEXT,
     created_at TIMESTAMP NOT NULL
@@ -73,4 +75,5 @@ CREATE INDEX IF NOT EXISTS idx_authenticators_credential_id ON authenticators(cr
 CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_credential_id ON audit_logs(credential_id);
 CREATE INDEX IF NOT EXISTS idx_admin_audit_logs_target_user_id ON admin_audit_logs(target_user_id);
+CREATE INDEX IF NOT EXISTS idx_admin_audit_logs_target_user_name ON admin_audit_logs(target_user_name);
 CREATE INDEX IF NOT EXISTS idx_cards_user_id ON cards(user_id);

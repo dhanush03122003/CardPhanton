@@ -40,6 +40,9 @@ function Login({ onLoginSuccess }) {
       }
     } catch (error) {
       console.log("Conditional UI listener status:", error.message);
+      if (error?.name === "ApiError") {
+        setError(error.message);
+      }
     } finally {
       setLoading(false);
     }

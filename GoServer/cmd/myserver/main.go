@@ -64,7 +64,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize card handler: %v", err)
 	}
-	adminRepo := admin.NewSQLiteRepository(userRepo, authRepo, cardRepo, auditRepo)
+	adminRepo := admin.NewSQLiteRepository(userRepo, authRepo, cardRepo, auditRepo, database.Pool())
 	adminHandler := admin.NewHandler(admin.NewService(adminRepo))
 
 	// Setup router via API package

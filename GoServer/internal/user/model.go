@@ -2,6 +2,12 @@ package user
 
 import "time"
 
+const (
+	StatusPendingApproval = "PENDING_APPROVAL"
+	StatusActive          = "ACTIVE"
+	StatusSuspended       = "SUSPENDED"
+)
+
 // User represents a user in the domain
 type User struct {
 	ID        string    `json:"id"`

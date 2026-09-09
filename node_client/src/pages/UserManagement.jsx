@@ -44,8 +44,11 @@ function UserManagement() {
   const [adminUsers, setAdminUsers] = useState([]);
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteConfirmAction, setDeleteConfirmAction] = useState("delete");
   const [details, setDetails] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [searchLoading, setSearchLoading] = useState(false);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [pageError, setPageError] = useState("");
@@ -92,7 +95,9 @@ function UserManagement() {
     const detailFields = isAdminAction
       ? {
           admin_user_id: log.admin_user_id,
+          admin_user_name: log.admin_user_name,
           target_user_id: log.target_user_id,
+          target_user_name: log.target_user_name,
           action_type: log.action_type,
           details: log.details,
           created_at: log.created_at,
@@ -194,8 +199,13 @@ function UserManagement() {
     </section>
   );
 
-  const loadUsers = async (requestedPage = page, requestedSearch = search) => {
-    setLoading(true);
+  const loadUsers = async (
+    requestedPage = page,
+    requestedSearch = search,
+    background = false,
+  ) => {
+    if (background) setSearchLoading(true);
+    else setLoading(true);
     try {
       const params = new URLSearchParams({
         page: String(requestedPage),
@@ -236,7 +246,8 @@ function UserManagement() {
     } catch (requestError) {
       setPageError(requestError.message);
     } finally {
-      setLoading(false);
+      if (background) setSearchLoading(false);
+      else setLoading(false);
     }
   };
 
@@ -270,7 +281,7 @@ function UserManagement() {
     const value = event.target.value;
     setSearch(value);
     setPage(1);
-    loadUsers(1, value);
+    loadUsers(1, value, true);
   };
 
   const changePage = (nextPage) => {
@@ -281,6 +292,8 @@ function UserManagement() {
 
   const openUser = async (user) => {
     setSelectedUser(user);
+    setDeleteConfirmOpen(false);
+    setDeleteConfirmAction("delete");
     setDetails(null);
     setDetailsLoading(true);
     setModalError("");
@@ -318,7 +331,9 @@ function UserManagement() {
       if (!response.ok) throw new ApiError(data, response.status);
       showToast(successMessage, "success");
       await loadUsers();
-      if (selectedUser) await openUser(selectedUser);
+      if (selectedUser) {
+        await openUser({ id: selectedUser.id });
+      }
     } catch (requestError) {
       setModalError(requestError.message);
       showToast(requestError.message, "error");
@@ -327,18 +342,27 @@ function UserManagement() {
     }
   };
 
+  const requestDeleteUser = () => {
+    if (!selectedUser || actionLoading) return;
+    setDeleteConfirmAction(
+      selectedUser.status === "PENDING_APPROVAL" ? "reject" : "delete",
+    );
+    setDeleteConfirmOpen(true);
+  };
+
   const deleteUser = async () => {
-    if (
-      !selectedUser ||
-      !window.confirm(`Delete ${selectedUser.username}? This cannot be undone.`)
-    )
-      return;
+    if (!selectedUser) return;
+    setDeleteConfirmOpen(false);
     setActionLoading(true);
     try {
-      const response = await fetch(`/api/admin/users/${selectedUser.id}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
+      const isReject = deleteConfirmAction === "reject";
+      const response = await fetch(
+        `/api/admin/users/${selectedUser.id}${isReject ? "/reject" : ""}`,
+        {
+          method: "DELETE",
+          credentials: "include",
+        },
+      );
       const data = await response.json();
       if (!response.ok) throw new ApiError(data, response.status);
       setUsers((items) => items.filter((item) => item.id !== selectedUser.id));
@@ -359,7 +383,43 @@ function UserManagement() {
       "Authenticator deleted.",
     );
 
+  const deleteUserCard = async (card) => {
+    if (
+      !selectedUser ||
+      !window.confirm(
+        `Delete the card ending in ${String(card.pan || "").slice(-4)} from ${selectedUser.username}?`,
+      )
+    ) {
+      return;
+    }
+    setActionLoading(true);
+    setModalError("");
+    try {
+      const response = await fetch(
+        `/api/admin/users/${selectedUser.id}/cards/${card.id}`,
+        { method: "DELETE", credentials: "include" },
+      );
+      const data = await response.json();
+      if (!response.ok) throw new ApiError(data, response.status);
+      setDetails((current) =>
+        current
+          ? {
+              ...current,
+              cards: current.cards.filter((item) => item.id !== card.id),
+            }
+          : current,
+      );
+      showToast("Card deleted successfully.", "success");
+    } catch (requestError) {
+      setModalError(requestError.message);
+      showToast(requestError.message, "error");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const normalUsers = users;
+  const actionUser = details?.user || selectedUser;
 
   const renderUserRow = (item) => (
     <tr
@@ -373,7 +433,7 @@ function UserManagement() {
       </td>
       <td className='px-3 py-4'>
         <span
-          className={`rounded-full px-2 py-1 text-xs font-semibold ${item.status === "ENABLED" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}
+          className={`rounded-full px-2 py-1 text-xs font-semibold ${item.status === "ACTIVE" ? "bg-emerald-100 text-emerald-700" : item.status === "SUSPENDED" ? "bg-amber-100 text-amber-700" : "bg-blue-100 text-blue-700"}`}
         >
           {item.status}
         </span>
@@ -457,6 +517,11 @@ function UserManagement() {
                 aria-label='Search normal users'
                 className='input-field sm:max-w-sm'
               />
+              {searchLoading && (
+                <span className='text-xs text-gray-500' role='status'>
+                  Searching...
+                </span>
+              )}
               {search.trim() && (
                 <span className='text-xs text-gray-500'>
                   {total} result{total === 1 ? "" : "s"} found
@@ -561,6 +626,7 @@ function UserManagement() {
                               <th className='px-3 py-3'>Type</th>
                               <th className='px-3 py-3'>CVV</th>
                               <th className='px-3 py-3'>Linked Phone</th>
+                              <th className='px-3 py-3 text-right'>Action</th>
                             </tr>
                           </thead>
                           <tbody className='divide-y divide-gray-100'>
@@ -594,6 +660,16 @@ function UserManagement() {
                                 </td>
                                 <td className='px-3 py-3 font-mono text-gray-700'>
                                   {card.linked_phone_number || "Unknown"}
+                                </td>
+                                <td className='px-3 py-3 text-right'>
+                                  <button
+                                    type='button'
+                                    onClick={() => deleteUserCard(card)}
+                                    disabled={actionLoading}
+                                    className='rounded-md bg-red-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50'
+                                  >
+                                    Delete Card
+                                  </button>
                                 </td>
                               </tr>
                             ))}
@@ -691,11 +767,11 @@ function UserManagement() {
                       Account actions
                     </h4>
                     <div className='mt-3 flex gap-2'>
-                      {selectedUser.status === "DISABLED" && (
+                      {actionUser?.status === "PENDING_APPROVAL" && (
                         <button
                           onClick={() =>
                             runAction(
-                              `/api/admin/users/${selectedUser.id}/approve`,
+                              `/api/admin/users/${actionUser.id}/approve`,
                               "PUT",
                               "User approved.",
                             )
@@ -706,11 +782,11 @@ function UserManagement() {
                           Approve User
                         </button>
                       )}
-                      {selectedUser.status === "ENABLED" && (
+                      {actionUser?.status === "ACTIVE" && (
                         <button
                           onClick={() =>
                             runAction(
-                              `/api/admin/users/${selectedUser.id}/suspend`,
+                              `/api/admin/users/${actionUser.id}/suspend`,
                               "PUT",
                               "User suspended.",
                             )
@@ -721,12 +797,31 @@ function UserManagement() {
                           Suspend User
                         </button>
                       )}
+                      {actionUser?.status === "SUSPENDED" && (
+                        <button
+                          type='button'
+                          onClick={() =>
+                            runAction(
+                              `/api/admin/users/${actionUser.id}/reactivate`,
+                              "PUT",
+                              "User re-enabled.",
+                            )
+                          }
+                          disabled={actionLoading}
+                          className='btn-secondary text-emerald-700'
+                        >
+                          Re-enable User
+                        </button>
+                      )}
                       <button
-                        onClick={deleteUser}
+                        type='button'
+                        onClick={requestDeleteUser}
                         disabled={actionLoading}
-                        className='btn-secondary text-red-600'
+                        className='rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-red-200 transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50 dark:shadow-red-950'
                       >
-                        Delete User
+                        {actionUser?.status === "PENDING_APPROVAL"
+                          ? "Reject User"
+                          : "Delete User"}
                       </button>
                     </div>
                   </section>
@@ -734,6 +829,64 @@ function UserManagement() {
               )
             )}
           </div>
+          {deleteConfirmOpen && (
+            <div
+              className='fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm'
+              onClick={() => setDeleteConfirmOpen(false)}
+            >
+              <div
+                role='dialog'
+                aria-modal='true'
+                aria-labelledby='delete-user-title'
+                className='w-full max-w-md rounded-xl border border-red-200 bg-white p-6 shadow-2xl dark:border-red-900 dark:bg-slate-900'
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className='flex items-start gap-3'>
+                  <div className='flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'>
+                    !
+                  </div>
+                  <div>
+                    <h3
+                      id='delete-user-title'
+                      className='text-lg font-semibold text-gray-900 dark:text-white'
+                    >
+                      {deleteConfirmAction === "reject" ? "Reject" : "Delete"}{" "}
+                      {selectedUser.username}?
+                    </h3>
+                    <p className='mt-2 text-sm leading-6 text-gray-600 dark:text-slate-300'>
+                      {deleteConfirmAction === "reject"
+                        ? "This rejects the pending account and permanently removes the user, passkeys, cards, and associated account data."
+                        : "This permanently deletes the user, passkeys, cards, and associated account data."}{" "}
+                      This action cannot be undone.
+                    </p>
+                  </div>
+                </div>
+                <div className='mt-6 flex justify-end gap-3'>
+                  <button
+                    type='button'
+                    onClick={() => setDeleteConfirmOpen(false)}
+                    className='btn-secondary'
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type='button'
+                    onClick={deleteUser}
+                    disabled={actionLoading}
+                    className='rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-red-200 transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50 dark:shadow-red-950'
+                  >
+                    {actionLoading
+                      ? deleteConfirmAction === "reject"
+                        ? "Rejecting..."
+                        : "Deleting..."
+                      : deleteConfirmAction === "reject"
+                        ? "Reject User"
+                        : "Delete User"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </section>

@@ -191,18 +191,16 @@ function Dashboard({ user }) {
               User Management
             </button>
           )}
-          {isAdmin && (
-            <button
-              onClick={() => setActiveTab("global-cards")}
-              className={`min-h-11 shrink-0 whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium ${activeTab === "global-cards" ? "border-slate-900 text-slate-900" : "border-transparent text-gray-500"}`}
-            >
-              Global Cards
-            </button>
-          )}
+          <button
+            onClick={() => setActiveTab("all-cards")}
+            className={`min-h-11 shrink-0 whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium ${activeTab === "all-cards" ? "border-slate-900 text-slate-900" : "border-transparent text-gray-500"}`}
+          >
+            All Cards
+          </button>
         </nav>
         {activeTab === "my-cards" ? (
           <MyCards />
-        ) : activeTab === "global-cards" && isAdmin ? (
+        ) : activeTab === "all-cards" ? (
           <GlobalCards />
         ) : activeTab === "management" && isAdmin ? (
           <UserManagement />

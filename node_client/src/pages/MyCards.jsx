@@ -15,9 +15,90 @@ const emptyCard = {
   cvv: "",
 };
 
+const currentYear = new Date().getFullYear();
+const maxExpiryYear = currentYear + 20;
+
+const cardNumberPattern =
+  /^(?:4\d{12}(?:\d{3})?|(?:5[1-5]\d{2}|222[1-9]|22[3-9]\d|2[3-6]\d{2}|27[01]\d|2720)\d{12}|6(?:011|5\d{2})\d{12}|(?:60|65|81|82|508)\d{13})$/;
+const phonePattern = /^[6-9]\d{9}$/;
+const expiryMonthPattern = /^(0[1-9]|1[0-2])$/;
+const expiryYearPattern = /^\d{4}$/;
+const integerFieldLimits = {
+  pan: 16,
+  linked_phone_number: 10,
+  exp_month: 2,
+  exp_year: 4,
+  cvv: 3,
+};
+
+function validateCardForm(card) {
+  const pan = String(card.pan ?? "").trim();
+  const cardholderName = String(card.cardholder_name ?? "").trim();
+  const bankName = String(card.bank_name ?? "").trim();
+  const productName = String(card.product_name ?? "").trim();
+  const linkedPhoneNumber = String(card.linked_phone_number ?? "").trim();
+  const expiryMonth = String(card.exp_month ?? "");
+  const expiryYear = String(card.exp_year ?? "");
+  const expMonth = Number(expiryMonth);
+  const expYear = Number(expiryYear);
+  const cvv = String(card.cvv ?? "").trim();
+
+  if (!cardNumberPattern.test(pan)) {
+    return "Enter a valid 13- or 16-digit credit card number.";
+  }
+  if (!cardholderName || cardholderName.length > 100) {
+    return "Cardholder name is required and must be 100 characters or fewer.";
+  }
+  if (!bankName || bankName.length > 100) {
+    return "Bank name is required and must be 100 characters or fewer.";
+  }
+  if (productName.length > 100) {
+    return "Product name must be 100 characters or fewer.";
+  }
+  if (!phonePattern.test(linkedPhoneNumber)) {
+    return "Enter a valid 10-digit mobile number starting with 6-9.";
+  }
+  if (!expiryMonthPattern.test(expiryMonth)) {
+    return "Expiry month must be exactly two digits, from 01 to 12.";
+  }
+  if (
+    !expiryYearPattern.test(expiryYear) ||
+    expYear < currentYear ||
+    expYear > maxExpiryYear
+  ) {
+    return `Expiry year must be between ${currentYear} and ${maxExpiryYear}.`;
+  }
+  if (expYear === currentYear && expMonth < new Date().getMonth() + 1) {
+    return "The card expiry date must be in the future.";
+  }
+  if (!/^\d{3}$/.test(cvv)) {
+    return "CVV must be exactly 3 digits.";
+  }
+  return "";
+}
+
+function getCardFormValues(card = emptyCard) {
+  return {
+    pan: String(card.pan ?? ""),
+    cardholder_name: String(card.cardholder_name ?? ""),
+    bank_name: String(card.bank_name ?? ""),
+    product_name: String(card.product_name ?? ""),
+    payment_method_type: String(card.payment_method_type ?? "Credit"),
+    card_brand: String(card.card_brand ?? "Visa"),
+    linked_phone_number: String(card.linked_phone_number ?? ""),
+    exp_month:
+      card.exp_month === "" || card.exp_month == null
+        ? ""
+        : String(card.exp_month).padStart(2, "0"),
+    exp_year: String(card.exp_year ?? ""),
+    cvv: String(card.cvv ?? ""),
+  };
+}
+
 function MyCards() {
   const [cards, setCards] = useState([]);
   const [form, setForm] = useState(emptyCard);
+  const [originalForm, setOriginalForm] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [formOpen, setFormOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -28,7 +109,7 @@ function MyCards() {
   const loadCards = async () => {
     setLoading(true);
     try {
-      const data = await apiRequest("/api/auth/cards");
+      const data = await apiRequest("/api/cards/mine");
       setCards(Array.isArray(data?.cards) ? data.cards : []);
     } catch (requestError) {
       setError(requestError.message);
@@ -41,46 +122,64 @@ function MyCards() {
   useEffect(() => {
     loadCards();
   }, []);
-  const updateField = (event) =>
+  const updateField = (event) => {
+    const { name, value } = event.target;
+    const limit = integerFieldLimits[name];
+    const nextValue = limit ? value.replace(/\D/g, "").slice(0, limit) : value;
+
     setForm((current) => ({
       ...current,
-      [event.target.name]: event.target.value,
+      [name]: nextValue,
     }));
+  };
   const closeForm = () => {
     setFormOpen(false);
     setEditingId(null);
+    setOriginalForm(null);
+    setError("");
     setForm(emptyCard);
   };
   const openCreate = () => {
-    setForm(emptyCard);
+    setForm({ ...emptyCard });
     setEditingId(null);
+    setOriginalForm(null);
     setError("");
     setFormOpen(true);
   };
   const openEdit = (card) => {
+    const cardForm = getCardFormValues(card);
     setEditingId(card.id);
-    setForm({ ...emptyCard, ...card });
+    setForm(cardForm);
+    setOriginalForm(cardForm);
     setError("");
     setFormOpen(true);
   };
 
+  const saveDisabled =
+    saving ||
+    (editingId !== null &&
+      JSON.stringify(form) === JSON.stringify(originalForm));
+
   const submit = async (event) => {
     event.preventDefault();
+    const validationError = validateCardForm(form);
+    if (validationError) {
+      setError(validationError);
+      showToast(validationError, "error");
+      return;
+    }
     setSaving(true);
     setError("");
     try {
-      await apiRequest(
-        editingId ? `/api/auth/cards/${editingId}` : "/api/auth/cards",
-        {
-          method: editingId ? "PUT" : "POST",
-          body: JSON.stringify({
-            ...form,
-            exp_month: Number(form.exp_month),
-            exp_year: Number(form.exp_year),
-            cvv: Number(form.cvv),
-          }),
-        },
-      );
+      await apiRequest(editingId ? `/api/cards/${editingId}` : "/api/cards", {
+        method: editingId ? "PUT" : "POST",
+        body: JSON.stringify({
+          ...form,
+          exp_month: Number(form.exp_month),
+          exp_year: Number(form.exp_year),
+          cvv: Number(form.cvv),
+        }),
+      });
       await loadCards();
       showToast(
         editingId ? "Card updated successfully." : "Card created successfully.",
@@ -98,7 +197,7 @@ function MyCards() {
   const deleteCard = async (card) => {
     if (!window.confirm(`Delete ${card.product_name || "this card"}?`)) return;
     try {
-      await apiRequest(`/api/auth/cards/${card.id}`, { method: "DELETE" });
+      await apiRequest(`/api/cards/${card.id}`, { method: "DELETE" });
       setCards((current) => current.filter((item) => item.id !== card.id));
       showToast("Card deleted successfully.", "success");
     } catch (requestError) {
@@ -108,14 +207,80 @@ function MyCards() {
   };
 
   const fields = [
-    ["pan", "PAN", "text", "16 digits"],
-    ["cardholder_name", "Cardholder Name", "text", "Name on card"],
-    ["bank_name", "Bank", "text", "Axis Bank"],
-    ["product_name", "Product Name", "text", "Flipkart Axis"],
-    ["linked_phone_number", "Linked Phone", "tel", "10-digit mobile number"],
-    ["exp_month", "Expiry Month", "number", "MM"],
-    ["exp_year", "Expiry Year", "number", "YYYY"],
-    ["cvv", "CVV", "password", "3 digits"],
+    {
+      name: "pan",
+      label: "Credit Card Number",
+      type: "text",
+      placeholder: "13 or 16 digits",
+      maxLength: 16,
+      inputMode: "numeric",
+      pattern: "[0-9]{13}|[0-9]{16}",
+      required: true,
+    },
+    {
+      name: "cardholder_name",
+      label: "Cardholder Name",
+      type: "text",
+      placeholder: "Name on card",
+      maxLength: 100,
+      required: true,
+    },
+    {
+      name: "bank_name",
+      label: "Bank",
+      type: "text",
+      placeholder: "Axis Bank",
+      maxLength: 100,
+      required: true,
+    },
+    {
+      name: "product_name",
+      label: "Product Name",
+      type: "text",
+      placeholder: "Flipkart Axis (optional)",
+      maxLength: 100,
+      required: false,
+    },
+    {
+      name: "linked_phone_number",
+      label: "Linked Phone",
+      type: "tel",
+      placeholder: "10-digit mobile number",
+      maxLength: 10,
+      inputMode: "numeric",
+      pattern: "[6-9][0-9]{9}",
+      required: true,
+    },
+    {
+      name: "exp_month",
+      label: "Expiry Month",
+      type: "text",
+      placeholder: "MM (01-12)",
+      maxLength: 2,
+      inputMode: "numeric",
+      pattern: "(0[1-9]|1[0-2])",
+      required: true,
+    },
+    {
+      name: "exp_year",
+      label: "Expiry Year",
+      type: "text",
+      placeholder: `YYYY (${currentYear}-${maxExpiryYear})`,
+      maxLength: 4,
+      inputMode: "numeric",
+      pattern: "[0-9]{4}",
+      required: true,
+    },
+    {
+      name: "cvv",
+      label: "CVV",
+      type: "password",
+      placeholder: "3 digits",
+      maxLength: 3,
+      inputMode: "numeric",
+      pattern: "[0-9]{3}",
+      required: true,
+    },
   ];
 
   return (
@@ -133,7 +298,7 @@ function MyCards() {
           Create New Card
         </button>
       </div>
-      {error && (
+      {error && !formOpen && (
         <p className='mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300'>
           {error}
         </p>
@@ -218,6 +383,7 @@ function MyCards() {
           <form
             onSubmit={submit}
             onClick={(event) => event.stopPropagation()}
+            noValidate
             className='max-h-[95vh] w-full max-w-2xl overflow-y-auto rounded-t-2xl bg-white p-4 shadow-xl dark:bg-slate-900 sm:p-6 md:max-h-[90vh] md:rounded-xl'
           >
             <div className='mb-5 flex items-center justify-between'>
@@ -233,20 +399,30 @@ function MyCards() {
                 ×
               </button>
             </div>
+            {error && (
+              <p className='mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300'>
+                {error}
+              </p>
+            )}
             <div className='grid grid-cols-1 gap-4 sm:grid-cols-2'>
-              {fields.map(([name, label, type, placeholder]) => (
+              {fields.map((field) => (
                 <label
-                  key={name}
+                  key={field.name}
                   className='text-sm font-medium text-gray-700 dark:text-slate-300'
                 >
-                  {label}
+                  {field.label}
                   <input
-                    name={name}
-                    type={type}
-                    value={form[name] || ""}
+                    name={field.name}
+                    type={field.type}
+                    value={form[field.name] || ""}
                     onChange={updateField}
-                    placeholder={placeholder}
-                    required
+                    placeholder={field.placeholder}
+                    maxLength={field.maxLength}
+                    min={field.min}
+                    max={field.max}
+                    inputMode={field.inputMode}
+                    pattern={field.pattern}
+                    required={field.required}
                     className='input-field mt-1'
                   />
                 </label>
@@ -280,7 +456,11 @@ function MyCards() {
                 </select>
               </label>
             </div>
-            <button disabled={saving} className='btn-primary mt-6 w-full'>
+            <button
+              type='submit'
+              disabled={saveDisabled}
+              className='btn-primary save-card-button mt-6 w-full'
+            >
               {saving ? "Saving..." : "Save Card"}
             </button>
           </form>

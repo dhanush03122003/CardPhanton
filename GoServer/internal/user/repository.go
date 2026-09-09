@@ -112,7 +112,7 @@ func (r *SQLiteUserRepository) GetUsers(ctx context.Context, search string, limi
 
 // CreateUser creates a new user (Postgres generates the UUID).
 func (r *SQLiteUserRepository) CreateUser(ctx context.Context, username string) (*User, error) {
-	return r.CreateUserWithID(ctx, uuid.NewString(), username, "USER", "ENABLED")
+	return r.CreateUserWithID(ctx, uuid.NewString(), username, "USER", StatusActive)
 }
 
 // CreateUserWithID creates a new user using a specific pre-generated UUID (stateless flow).
@@ -136,7 +136,7 @@ func (r *SQLiteUserRepository) UpdateUserStatus(ctx context.Context, userID, sta
 
 // GetPendingUsers returns users waiting for admin approval.
 func (r *SQLiteUserRepository) GetPendingUsers(ctx context.Context) ([]User, error) {
-	rows, err := r.pool.QueryContext(ctx, "SELECT id, username, role, status, created_at FROM users WHERE status = ? ORDER BY created_at ASC", "DISABLED")
+	rows, err := r.pool.QueryContext(ctx, "SELECT id, username, role, status, created_at FROM users WHERE status = ? ORDER BY created_at ASC", StatusPendingApproval)
 	if err != nil {
 		return nil, err
 	}
@@ -155,13 +155,6 @@ func (r *SQLiteUserRepository) GetPendingUsers(ctx context.Context) ([]User, err
 
 // DeleteUser deletes a user by ID.
 func (r *SQLiteUserRepository) DeleteUser(ctx context.Context, userID string) error {
-	// Existing databases may still have audit_logs.user_id configured with
-	// ON DELETE CASCADE. Disable foreign keys briefly so rejection audits remain.
-	if _, err := r.pool.ExecContext(ctx, "PRAGMA foreign_keys = OFF"); err != nil {
-		return err
-	}
-	defer r.pool.ExecContext(ctx, "PRAGMA foreign_keys = ON")
-
 	_, err := r.pool.ExecContext(ctx, "DELETE FROM users WHERE id = ?", userID)
 	return err
 }

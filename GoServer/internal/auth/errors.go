@@ -21,6 +21,7 @@ const (
 	ErrMsgPasskeyNotRecognized  ErrorMessage = "Passkey not recognized"
 	ErrMsgUserNotFound          ErrorMessage = "User not found"
 	ErrMsgPendingApproval       ErrorMessage = "Your account is pending admin approval."
+	ErrMsgSuspended             ErrorMessage = "Your account is suspended. Please contact an administrator."
 	ErrMsgGenerateToken         ErrorMessage = "Failed to generate token"
 	ErrMsgUnauthorized          ErrorMessage = "Unauthorized"
 	ErrMsgAuthenticatorID       ErrorMessage = "Authenticator ID required"

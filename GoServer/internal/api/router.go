@@ -40,14 +40,18 @@ func SetupRouter(authHandler *auth.AuthHandler, adminHandler *admin.Handler, car
 				protected.DELETE("/authenticator/:id", authHandler.DeleteAuthenticator)
 				protected.PUT("/authenticator/:id/nickname", authHandler.UpdateAuthenticatorNickname)
 				protected.POST("/logout", authHandler.Logout)
-
-				// Card routes
-				protected.GET("/cards", cardHandler.GetCards)
-				protected.POST("/cards", cardHandler.CreateCard)
-				protected.PUT("/cards/:id", cardHandler.UpdateCard)
-				protected.DELETE("/cards/:id", cardHandler.DeleteCard)
 			}
 
+		}
+
+		cards := apiGroup.Group("/cards")
+		cards.Use(middleware.JWTAuth(jwtSecret, userRepo))
+		{
+			cards.GET("", cardHandler.GetGlobalCards)
+			cards.GET("/mine", cardHandler.GetCards)
+			cards.POST("", cardHandler.CreateCard)
+			cards.PUT("/:id", cardHandler.UpdateCard)
+			cards.DELETE("/:id", cardHandler.DeleteCard)
 		}
 
 		admin := apiGroup.Group("/admin")
@@ -62,24 +66,16 @@ func SetupRouter(authHandler *auth.AuthHandler, adminHandler *admin.Handler, car
 				approval.GET("/users", adminHandler.GetUsers)
 				approval.GET("/users/:id/details", adminHandler.GetUserDetails)
 				approval.PUT("/users/:id/approve", adminHandler.ApproveUser)
+				approval.DELETE("/users/:id/reject", adminHandler.RejectUser)
 				approval.PUT("/users/:id/suspend", adminHandler.SuspendUser)
+				approval.PUT("/users/:id/reactivate", adminHandler.ReactivateUser)
 				approval.DELETE("/users/:id", adminHandler.DeleteUser)
 				approval.DELETE("/users/:id/authenticators/:authId", adminHandler.DeleteAuthenticator)
+				approval.DELETE("/users/:id/cards/:cardId", adminHandler.DeleteCard)
 			}
 		}
 
-		globalCards := apiGroup.Group("/cards")
-		globalCards.Use(middleware.JWTAuth(jwtSecret, userRepo), middleware.AdminOnly())
-		globalCards.GET("/global", cardHandler.GetGlobalCards)
 	}
 
 	return router
 }
-
-// adminOnly := protected.Group("")
-// adminOnly.Use(middleware.AdminOnly())
-// {
-//     // Any routes put here will strictly require the "admin" role
-//     // adminOnly.GET("/stats", cardHandler.GetSystemStats)
-// }
-// Blacklist JWTs: If using JSON Web Tokens (JWT), add the logged-out token to a temporary Redis blacklist until its original expiry time passes.

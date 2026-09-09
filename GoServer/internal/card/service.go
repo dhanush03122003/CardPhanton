@@ -91,7 +91,7 @@ func (s *CardService) GetAllCards(ctx context.Context, userID string) ([]*Card, 
 	return cards, nil
 }
 
-// GetGlobalCards returns every card and is intended for admin-only access.
+// GetGlobalCards returns every card for authenticated users.
 func (s *CardService) GetGlobalCards(ctx context.Context) ([]*Card, error) {
 	cards, err := s.repo.GetAllCards(ctx)
 	if err != nil {
@@ -253,6 +253,14 @@ func (s *CardService) UpdateCard(ctx context.Context, userID, cardID string, inp
 	}
 	if err := s.validateCardInput(createInput); err != nil {
 		return nil, err
+	}
+
+	cardWithPAN, err := s.repo.GetCardByPAN(ctx, input.PAN)
+	if err != nil {
+		return nil, ErrFailedToUpdate
+	}
+	if cardWithPAN != nil && cardWithPAN.ID != cardID {
+		return nil, ErrDuplicatePAN
 	}
 
 	card := &Card{

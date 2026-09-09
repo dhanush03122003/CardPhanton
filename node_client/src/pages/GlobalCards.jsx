@@ -154,7 +154,7 @@ function GlobalCards() {
   };
 
   useEffect(() => {
-    apiRequest("/api/cards/global")
+    apiRequest("/api/cards")
       .then((data) => setCards(Array.isArray(data?.cards) ? data.cards : []))
       .catch((requestError) => {
         setError(requestError.message);
@@ -184,10 +184,10 @@ function GlobalCards() {
     <section className='card'>
       <div className='mb-6 border-b border-gray-100 pb-4 dark:border-slate-700'>
         <h2 className='font-semibold text-gray-900 dark:text-white'>
-          Global Cards
+          All Cards
         </h2>
         <p className='mt-1 text-sm text-gray-500'>
-          Admin view of all cards in the system.
+          View all cards available in the system.
         </p>
       </div>
       {loading && (

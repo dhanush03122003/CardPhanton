@@ -122,13 +122,13 @@ func (h *AuthHandler) VerifyRegistration(c *gin.Context) {
 
 	sessionData, err := middleware.GetWebAuthnSession(c, string(h.jwtSecret))
 	if err != nil || sessionData == nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": ErrMsgRegistrationSession})
+		apierrors.Error(c, http.StatusUnauthorized, "REGISTRATION_SESSION_EXPIRED", "Registration Session Expired", string(ErrMsgRegistrationSession))
 		return
 	}
 
 	parsedUUID, err := uuid.FromBytes(sessionData.UserID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": ErrMsgInvalidUserID})
+		apierrors.Error(c, http.StatusBadRequest, "INVALID_USER_ID", "Invalid User ID", string(ErrMsgInvalidUserID))
 		return
 	}
 	userIDStr := parsedUUID.String()
@@ -137,22 +137,24 @@ func (h *AuthHandler) VerifyRegistration(c *gin.Context) {
 
 	parsedResponse, err := protocol.ParseCredentialCreationResponseBody(bytes.NewReader(body.Verification))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": string(ErrMsgParseWebAuthnResponse) + err.Error()})
+		apierrors.Error(c, http.StatusBadRequest, "INVALID_WEBAUTHN_RESPONSE", "Invalid WebAuthn Response", string(ErrMsgParseWebAuthnResponse)+err.Error())
 		return
 	}
 
 	credential, err := h.webAuthn.CreateCredential(userForAuth, *sessionData, parsedResponse)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": string(ErrMsgBiometricVerification) + err.Error()})
+		apierrors.Error(c, http.StatusBadRequest, "BIOMETRIC_VERIFICATION_FAILED", "Biometric Verification Failed", string(ErrMsgBiometricVerification)+err.Error())
 		return
 	}
 
 	userRow, err := h.userRepo.FindUserByID(ctx, userIDStr)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": ErrMsgDatabase})
+		apierrors.Error(c, http.StatusInternalServerError, "DATABASE_ERROR", "Database Error", string(ErrMsgDatabase))
 		return
 	}
 
+	approvalRequired := false
+	accountCreated := false
 	if userRow == nil {
 		// Determine user role: check if username is in admin list (case-insensitive)
 		role := "USER"
@@ -163,16 +165,19 @@ func (h *AuthHandler) VerifyRegistration(c *gin.Context) {
 			}
 		}
 
-		status := "DISABLED"
+		status := user.StatusPendingApproval
 		if role == "ADMIN" {
-			status = "ENABLED"
+			status = user.StatusActive
+		} else {
+			approvalRequired = true
 		}
 
 		userRow, err = h.userRepo.CreateUserWithID(ctx, userIDStr, body.Username, role, status)
 		if err != nil {
-			c.JSON(http.StatusConflict, gin.H{"error": ErrMsgUsernameTaken})
+			apierrors.Error(c, http.StatusConflict, "USERNAME_TAKEN", "Username Already Taken", string(ErrMsgUsernameTaken))
 			return
 		}
+		accountCreated = true
 	}
 
 	attachmentType := "cross-platform"
@@ -224,7 +229,7 @@ func (h *AuthHandler) VerifyRegistration(c *gin.Context) {
 		&nickname,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": ErrMsgSaveAuthenticator})
+		apierrors.Error(c, http.StatusInternalServerError, "AUTHENTICATOR_SAVE_FAILED", "Authenticator Save Failed", string(ErrMsgSaveAuthenticator))
 		return
 	}
 
@@ -236,7 +241,26 @@ func (h *AuthHandler) VerifyRegistration(c *gin.Context) {
 	location := h.getLocation(ip)
 	userAgent := c.GetHeader("User-Agent")
 
-	_ = h.audit.LogAuthEvent(ctx, userIDStr, base64.RawURLEncoding.EncodeToString(credential.ID), ip, userAgent, location, audit.ActionTypePasskeyAdded)
+	credentialID := base64.RawURLEncoding.EncodeToString(credential.ID)
+	if accountCreated {
+		_ = h.audit.LogAuthEvent(ctx, userIDStr, credentialID, ip, userAgent, location, audit.ActionTypeAccountCreated)
+		if approvalRequired {
+			_ = h.audit.LogAuthEvent(ctx, userIDStr, credentialID, ip, userAgent, location, audit.ActionTypeSentForApproval)
+		}
+	}
+	_ = h.audit.LogAuthEvent(ctx, userIDStr, credentialID, ip, userAgent, location, audit.ActionTypePasskeyAdded)
+
+	if approvalRequired {
+		_ = h.audit.LogAdminAction(
+			ctx,
+			"SYSTEM",
+			"SYSTEM",
+			userRow.ID,
+			userRow.Username,
+			string(audit.AdminActionApprovalReceived),
+			"New user registration received and is awaiting admin approval",
+		)
+	}
 
 	// Registration successful - user must login separately
 	// Clear WebAuthn session to ensure fresh state for login
@@ -349,8 +373,16 @@ func (h *AuthHandler) VerifyAuthentication(c *gin.Context) {
 		apierrors.Error(c, http.StatusBadRequest, "USER_NOT_FOUND", "User Not Found", string(ErrMsgUserNotFound))
 		return
 	}
-	if userRow.Status != "ENABLED" {
+	if userRow.Status == user.StatusPendingApproval {
 		apierrors.Error(c, http.StatusForbidden, "PENDING_ADMIN_APPROVAL", "Account Pending Approval", string(ErrMsgPendingApproval))
+		return
+	}
+	if userRow.Status == user.StatusSuspended {
+		apierrors.Error(c, http.StatusForbidden, "ACCOUNT_SUSPENDED", "Account Suspended", string(ErrMsgSuspended))
+		return
+	}
+	if userRow.Status != user.StatusActive {
+		apierrors.Error(c, http.StatusForbidden, "ACCOUNT_UNAVAILABLE", "Account Unavailable", "This account cannot authenticate in its current state.")
 		return
 	}
 

@@ -12,26 +12,37 @@ import (
 // Repository defines audit persistence operations.
 type Repository interface {
 	LogAuthEvent(ctx context.Context, userID, credentialID, ipAddress, userAgent, location string, actionType ActionType) error
-	LogAdminAction(ctx context.Context, adminID, targetID, action, details string) error
-	GetAdminLogsByTargetUser(ctx context.Context, targetID string) ([]AdminAuditLog, error)
+	DeleteAuthLogsByUserID(ctx context.Context, userID string) error
+	LogAdminAction(ctx context.Context, adminID, adminName, targetID, targetName, action, details string) error
+	GetAdminLogsByTargetUser(ctx context.Context, targetID, targetName string) ([]AdminAuditLog, error)
 	GetAuthLogsByUserID(ctx context.Context, userID string) ([]AuditLog, error)
 }
 
-// LogAdminAction stores an administrative action independently from user activity.
-func (r *SQLiteRepository) LogAdminAction(ctx context.Context, adminID, targetID, action, details string) error {
-	_, err := r.pool.ExecContext(ctx, `
-		INSERT INTO admin_audit_logs (id, admin_user_id, target_user_id, action_type, details, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, uuid.NewString(), adminID, targetID, action, details, timeutil.Now())
+// DeleteAuthLogsByUserID removes user activity while preserving admin audit logs.
+func (r *SQLiteRepository) DeleteAuthLogsByUserID(ctx context.Context, userID string) error {
+	_, err := r.pool.ExecContext(ctx, "DELETE FROM audit_logs WHERE user_id = ?", userID)
 	return err
 }
 
-// GetAdminLogsByTargetUser returns admin actions for a target user.
-func (r *SQLiteRepository) GetAdminLogsByTargetUser(ctx context.Context, targetID string) ([]AdminAuditLog, error) {
+// LogAdminAction stores an administrative action independently from user activity.
+func (r *SQLiteRepository) LogAdminAction(ctx context.Context, adminID, adminName, targetID, targetName, action, details string) error {
+	_, err := r.pool.ExecContext(ctx, `
+		INSERT INTO admin_audit_logs (id, admin_user_id, admin_user_name, target_user_id, target_user_name, action_type, details, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, uuid.NewString(), adminID, adminName, targetID, targetName, action, details, timeutil.Now())
+	return err
+}
+
+// GetAdminLogsByTargetUser returns every admin action for a target user.
+// Matching by name preserves history across re-registration; matching by ID
+// keeps older records readable when the username column was not populated.
+func (r *SQLiteRepository) GetAdminLogsByTargetUser(ctx context.Context, targetID, targetName string) ([]AdminAuditLog, error) {
 	rows, err := r.pool.QueryContext(ctx, `
-		SELECT id, admin_user_id, target_user_id, action_type, details, created_at
-		FROM admin_audit_logs WHERE target_user_id = ? ORDER BY created_at DESC
-	`, targetID)
+		SELECT id, admin_user_id, admin_user_name, target_user_id, target_user_name, action_type, details, created_at
+		FROM admin_audit_logs
+		WHERE target_user_name = ? OR target_user_id = ?
+		ORDER BY created_at DESC
+	`, targetName, targetID)
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +51,7 @@ func (r *SQLiteRepository) GetAdminLogsByTargetUser(ctx context.Context, targetI
 	var logs []AdminAuditLog
 	for rows.Next() {
 		var log AdminAuditLog
-		if err := rows.Scan(&log.ID, &log.AdminUserID, &log.TargetUserID, &log.ActionType, &log.Details, &log.CreatedAt); err != nil {
+		if err := rows.Scan(&log.ID, &log.AdminUserID, &log.AdminUserName, &log.TargetUserID, &log.TargetUserName, &log.ActionType, &log.Details, &log.CreatedAt); err != nil {
 			return nil, err
 		}
 		logs = append(logs, log)

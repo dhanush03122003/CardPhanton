@@ -38,7 +38,7 @@ func (h *CardHandler) GetCards(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"cards": cards})
 }
 
-// GetGlobalCards handles GET /api/cards/global for administrators.
+// GetGlobalCards handles GET /api/cards for authenticated users.
 func (h *CardHandler) GetGlobalCards(c *gin.Context) {
 	cards, err := h.service.GetGlobalCards(c.Request.Context())
 	if err != nil {
@@ -171,6 +171,8 @@ func (h *CardHandler) UpdateCard(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": ErrMsgCardNotFound})
 		case ErrNotAuthorized:
 			c.JSON(http.StatusForbidden, gin.H{"error": ErrMsgNotAuthorizedUpdate})
+		case ErrDuplicatePAN:
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		case ErrInvalidPAN, ErrInvalidCVV, ErrInvalidExpiry, ErrInvalidCardBrand,
 			ErrInvalidPaymentMethod, ErrInvalidExpMonth, ErrInvalidExpYear,
 			ErrInvalidLinkedPhoneNumber:

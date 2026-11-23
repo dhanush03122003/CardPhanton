@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 
 	"github.com/gin-gonic/gin"
@@ -32,6 +33,7 @@ var (
 	ErrInvalidExpMonth          = errors.New("invalid expiry month: must be 1-12")
 	ErrInvalidExpYear           = errors.New("invalid expiry year: must be 2024 or later")
 	ErrInvalidLinkedPhoneNumber = errors.New("invalid linked phone number: must be exactly 10 digits and start with 6-9")
+	ErrInvalidLimit             = errors.New("card limits must be non-negative numbers")
 )
 
 // ValidCardBrands contains valid card brand names
@@ -57,14 +59,34 @@ type CardService struct {
 	repo     Repository
 	userRepo user.UserRepository
 	audit    audit.Repository
+	consent  ConsentResetter
+}
+
+type ConsentResetter interface {
+	DeleteGoogleOAuthToken(ctx context.Context, userID, cardID string) error
+}
+
+func (s *CardService) GetCardForUser(ctx context.Context, userID, cardID string) (*Card, error) {
+	card, err := s.repo.GetCardByID(ctx, cardID)
+	if err != nil {
+		return nil, ErrFailedToFetch
+	}
+	if card == nil {
+		return nil, ErrCardNotFound
+	}
+	if card.UserID != userID {
+		return nil, ErrNotAuthorized
+	}
+	return card, nil
 }
 
 // NewCardService creates a new card service
-func NewCardService(repo Repository, userRepo user.UserRepository, auditRepo audit.Repository) *CardService {
+func NewCardService(repo Repository, userRepo user.UserRepository, auditRepo audit.Repository, consentResetter ConsentResetter) *CardService {
 	return &CardService{
 		repo:     repo,
 		userRepo: userRepo,
 		audit:    auditRepo,
+		consent:  consentResetter,
 	}
 }
 
@@ -108,6 +130,7 @@ type CreateCardInput struct {
 	PAN               string
 	CardholderName    string
 	BankName          string
+	Email             string
 	PaymentMethodType PaymentMethodType
 	CardBrand         string
 	ProductName       string
@@ -115,6 +138,8 @@ type CreateCardInput struct {
 	ExpMonth          int
 	ExpYear           int
 	Cvv               int
+	TotalLimit        *float64
+	AvailableLimit    *float64
 }
 
 // validateCardInput validates the card input fields
@@ -125,6 +150,10 @@ func (s *CardService) validateCardInput(input CreateCardInput) error {
 	}
 	if !phoneRegex.MatchString(input.LinkedPhoneNumber) {
 		return ErrInvalidLinkedPhoneNumber
+	}
+	if (input.TotalLimit != nil && (math.IsNaN(*input.TotalLimit) || math.IsInf(*input.TotalLimit, 0) || *input.TotalLimit < 0)) ||
+		(input.AvailableLimit != nil && (math.IsNaN(*input.AvailableLimit) || math.IsInf(*input.AvailableLimit, 0) || *input.AvailableLimit < 0)) {
+		return ErrInvalidLimit
 	}
 
 	// Validate CVV: must be exactly 3 digits
@@ -189,6 +218,7 @@ func (s *CardService) CreateCard(ctx context.Context, userID string, input Creat
 		PAN:               input.PAN,
 		CardholderName:    input.CardholderName,
 		BankName:          input.BankName,
+		Email:             input.Email,
 		PaymentMethodType: input.PaymentMethodType,
 		CardBrand:         input.CardBrand,
 		ProductName:       input.ProductName,
@@ -196,6 +226,8 @@ func (s *CardService) CreateCard(ctx context.Context, userID string, input Creat
 		ExpMonth:          input.ExpMonth,
 		ExpYear:           input.ExpYear,
 		Cvv:               input.Cvv,
+		TotalLimit:        input.TotalLimit,
+		AvailableLimit:    input.AvailableLimit,
 	}
 
 	if err := s.repo.SaveCardUnderUserID(ctx, card); err != nil {
@@ -215,6 +247,7 @@ type UpdateCardInput struct {
 	PAN               string
 	CardholderName    string
 	BankName          string
+	Email             string
 	PaymentMethodType PaymentMethodType
 	CardBrand         string
 	ProductName       string
@@ -222,6 +255,8 @@ type UpdateCardInput struct {
 	ExpMonth          int
 	ExpYear           int
 	Cvv               int
+	TotalLimit        *float64
+	AvailableLimit    *float64
 }
 
 // UpdateCard updates an existing card (with authorization check)
@@ -243,6 +278,7 @@ func (s *CardService) UpdateCard(ctx context.Context, userID, cardID string, inp
 		PAN:               input.PAN,
 		CardholderName:    input.CardholderName,
 		BankName:          input.BankName,
+		Email:             input.Email,
 		PaymentMethodType: input.PaymentMethodType,
 		CardBrand:         input.CardBrand,
 		ProductName:       input.ProductName,
@@ -250,6 +286,8 @@ func (s *CardService) UpdateCard(ctx context.Context, userID, cardID string, inp
 		ExpMonth:          input.ExpMonth,
 		ExpYear:           input.ExpYear,
 		Cvv:               input.Cvv,
+		TotalLimit:        input.TotalLimit,
+		AvailableLimit:    input.AvailableLimit,
 	}
 	if err := s.validateCardInput(createInput); err != nil {
 		return nil, err
@@ -269,6 +307,7 @@ func (s *CardService) UpdateCard(ctx context.Context, userID, cardID string, inp
 		PAN:               input.PAN,
 		CardholderName:    input.CardholderName,
 		BankName:          input.BankName,
+		Email:             input.Email,
 		PaymentMethodType: input.PaymentMethodType,
 		CardBrand:         input.CardBrand,
 		ProductName:       input.ProductName,
@@ -276,10 +315,17 @@ func (s *CardService) UpdateCard(ctx context.Context, userID, cardID string, inp
 		ExpMonth:          input.ExpMonth,
 		ExpYear:           input.ExpYear,
 		Cvv:               input.Cvv,
+		TotalLimit:        input.TotalLimit,
+		AvailableLimit:    input.AvailableLimit,
 	}
 
 	if err := s.repo.UpdateCardDetails(ctx, card); err != nil {
 		return nil, ErrFailedToUpdate
+	}
+	if s.consent != nil {
+		if err := s.consent.DeleteGoogleOAuthToken(ctx, userID, cardID); err != nil {
+			return nil, ErrFailedToUpdate
+		}
 	}
 
 	// Log audit event

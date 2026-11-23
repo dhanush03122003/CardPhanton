@@ -1,0 +1,1 @@
+Extract credit-card details from the email body. Return strictly JSON matching this schema: {"bank_name":"string","card_last_four":"string","event_type":"statement|transaction|payment","total_limit":number|null,"available_limit":number|null,"transaction_amount":number|null}. Return null for missing numeric fields.

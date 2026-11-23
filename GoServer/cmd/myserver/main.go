@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	"go.temporal.io/sdk/client"
 
 	"webauthn-server/internal/admin"
 	"webauthn-server/internal/api"
@@ -14,6 +15,7 @@ import (
 	"webauthn-server/internal/card"
 	"webauthn-server/internal/config"
 	"webauthn-server/internal/db"
+	jobtemporal "webauthn-server/internal/jobs/temporal"
 	"webauthn-server/internal/user"
 )
 
@@ -54,16 +56,21 @@ func main() {
 	auditRepo := audit.NewSQLiteRepository(database.Pool())
 	cardRepo := card.NewSQLiteCardRepository(database.Pool())
 
-	authHandler, err := auth.NewAuthHandler(authRepo, userRepo, auditRepo, webAuthnService, cfg)
+	authHandler, err := auth.NewAuthHandler(authRepo, userRepo, auditRepo, cardRepo, webAuthnService, cfg)
 	if err != nil {
 		log.Fatalf("Failed to initialize auth handler: %v", err)
 	}
 
-	cardService := card.NewCardService(cardRepo, userRepo, auditRepo)
-	cardHandler := card.NewCardHandler(cardService, cfg)
-	if err != nil {
-		log.Fatalf("Failed to initialize card handler: %v", err)
+	cardService := card.NewCardService(cardRepo, userRepo, auditRepo, authRepo)
+	var workflowStarter card.WorkflowStarter
+	temporalClient, temporalErr := client.Dial(client.Options{HostPort: cfg.TemporalAddress})
+	if temporalErr != nil {
+		log.Printf("Temporal unavailable; card refresh will be disabled: %v", temporalErr)
+	} else {
+		defer temporalClient.Close()
+		workflowStarter = jobtemporal.WorkflowStarter{Client: temporalClient}
 	}
+	cardHandler := card.NewCardHandler(cardService, cfg, workflowStarter)
 	adminRepo := admin.NewSQLiteRepository(userRepo, authRepo, cardRepo, auditRepo, database.Pool())
 	adminHandler := admin.NewHandler(admin.NewService(adminRepo))
 

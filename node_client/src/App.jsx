@@ -5,6 +5,7 @@ import { ToastProvider } from "./components/Toast";
 import Register from "./pages/Register";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
+import GoogleCallback from "./pages/GoogleCallback";
 
 function App() {
   const [user, setUser] = useState(null);
@@ -37,8 +38,7 @@ function App() {
 
       if (response.ok) {
         const data = await response.json();
-        // Extract user object from nested response structure
-        setUser(data.user);
+        setUser(data.isauthenticated ? { username: data.username } : null);
       }
     } catch (error) {
       console.error("Error verifying authentication:", error);
@@ -100,6 +100,7 @@ function App() {
                 )
               }
             />
+            <Route path='/google/callback' element={<GoogleCallback />} />
             <Route
               path='/dashboard'
               element={

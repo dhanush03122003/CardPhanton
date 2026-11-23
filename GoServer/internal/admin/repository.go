@@ -4,16 +4,18 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/google/uuid"
 	"webauthn-server/internal/audit"
 	authrepo "webauthn-server/internal/auth"
 	cardrepo "webauthn-server/internal/card"
 	"webauthn-server/internal/timeutil"
 	"webauthn-server/internal/user"
+
+	"github.com/google/uuid"
 )
 
 // Repository defines persistence operations used by the admin workflow.
 type Repository interface {
+	GetRefreshRuns(ctx context.Context) ([]RefreshRun, error)
 	GetAdminUsers(ctx context.Context) ([]user.User, error)
 	GetUsers(ctx context.Context, search string, limit, offset int) ([]user.User, int, error)
 	FindUserByID(ctx context.Context, userID string) (*user.User, error)

@@ -19,6 +19,15 @@ type Config struct {
 	AuthTokenExpiry       int      // in seconds
 	WebAuthnSessionExpiry int      // in seconds
 	AdminUsernames        []string // list of usernames with admin role
+	LLMProvider           string
+	GeminiAPIKey          string
+	GeminiModel           string
+	OllamaBaseURL         string
+	OllamaModel           string
+	EmailAPI              string
+	IMAPHost              string
+	IMAPAppPassword       string
+	TemporalAddress       string
 }
 
 // Load loads configuration from environment variables
@@ -35,6 +44,15 @@ func Load() *Config {
 		AuthTokenExpiry:       getEnvInt("AUTH_TOKEN_EXPIRY", 86400),
 		WebAuthnSessionExpiry: getEnvInt("WEBAUTHN_SESSION_EXPIRY", 300),
 		AdminUsernames:        parseAdminUsernames(getEnv("ADMIN_USERNAMES", "")),
+		LLMProvider:           getEnv("LLM_PROVIDER", "ollama"),
+		GeminiAPIKey:          getEnv("GEMINI_API_KEY", ""),
+		GeminiModel:           getEnv("GEMINI_MODEL", "gemini-2.0-flash"),
+		OllamaBaseURL:         getEnv("OLLAMA_BASE_URL", "http://localhost:11434"),
+		OllamaModel:           getEnv("OLLAMA_MODEL", "llama3.2"),
+		EmailAPI:              getEnv("EMAIL_API", "imp"),
+		IMAPHost:              getEnv("IMAP_HOST", "imap.gmail.com:993"),
+		IMAPAppPassword:       getEnv("IMAP_APP_PASSWORD", ""),
+		TemporalAddress:       getEnv("TEMPORAL_ADDRESS", "localhost:7233"),
 	}
 }
 

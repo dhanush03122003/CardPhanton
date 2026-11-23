@@ -129,6 +129,13 @@ type SessionClaims struct {
 	jwt.RegisteredClaims
 }
 
+type GoogleOAuthStateClaims struct {
+	State  string `json:"state"`
+	UserID string `json:"user_id"`
+	CardID string `json:"card_id"`
+	jwt.RegisteredClaims
+}
+
 // GetWebAuthnSession reads WebAuthn session data from the JWT cookie
 func GetWebAuthnSession(c *gin.Context, jwtSecret string) (*webauthn.SessionData, error) {
 	cookie, err := c.Cookie("webauthn_session")
@@ -188,4 +195,51 @@ func SaveWebAuthnSession(c *gin.Context, session webauthn.SessionData, jwtSecret
 func ClearWebAuthnSession(c *gin.Context, cfg *config.Config) {
 	secure := strings.EqualFold(cfg.Environment, "PROD")
 	c.SetCookie("webauthn_session", "", -1, "/", "", secure, true)
+}
+
+func GetGoogleOAuthState(c *gin.Context, jwtSecret string) (*GoogleOAuthStateClaims, error) {
+	cookie, err := c.Cookie("google_oauth_state")
+	if err != nil {
+		return nil, err
+	}
+
+	token, err := jwt.ParseWithClaims(cookie, &GoogleOAuthStateClaims{}, func(token *jwt.Token) (interface{}, error) {
+		return []byte(jwtSecret), nil
+	})
+	if err != nil || !token.Valid {
+		return nil, fmt.Errorf("invalid or expired Google OAuth state")
+	}
+
+	claims, ok := token.Claims.(*GoogleOAuthStateClaims)
+	if !ok || claims.State == "" {
+		return nil, fmt.Errorf("invalid Google OAuth state")
+	}
+	return claims, nil
+}
+
+func SaveGoogleOAuthState(c *gin.Context, state, userID, cardID, jwtSecret string, cfg *config.Config) error {
+	claims := GoogleOAuthStateClaims{
+		State:  state,
+		UserID: userID,
+		CardID: cardID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(timeutil.Now().Add(10 * time.Minute)),
+			IssuedAt:  jwt.NewNumericDate(timeutil.Now()),
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString([]byte(jwtSecret))
+	if err != nil {
+		return err
+	}
+
+	secure := strings.EqualFold(cfg.Environment, "PROD")
+	c.SetCookie("google_oauth_state", tokenString, 600, "/", "", secure, true)
+	return nil
+}
+
+func ClearGoogleOAuthState(c *gin.Context, cfg *config.Config) {
+	secure := strings.EqualFold(cfg.Environment, "PROD")
+	c.SetCookie("google_oauth_state", "", -1, "/", "", secure, true)
 }

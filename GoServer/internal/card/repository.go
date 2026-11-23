@@ -24,7 +24,7 @@ type Repository interface {
 // GetAllCards retrieves cards across all users for the admin visualizer.
 func (r *SQLiteCardRepository) GetAllCards(ctx context.Context) ([]*Card, error) {
 	rows, err := r.pool.QueryContext(ctx,
-		"SELECT id, user_id, PAN, cardholder_name, bank_name, payment_method_type, card_brand, product_name, linked_phone_number, exp_month, exp_year, cvv, created_at, updated_at FROM cards ORDER BY created_at DESC",
+		"SELECT id, user_id, PAN, cardholder_name, bank_name, email, payment_method_type, card_brand, product_name, linked_phone_number, exp_month, exp_year, cvv, total_limit, available_limit, created_at, updated_at FROM cards ORDER BY created_at DESC",
 	)
 	if err != nil {
 		return nil, err
@@ -34,7 +34,7 @@ func (r *SQLiteCardRepository) GetAllCards(ctx context.Context) ([]*Card, error)
 	var cards []*Card
 	for rows.Next() {
 		var card Card
-		if err := rows.Scan(&card.ID, &card.UserID, &card.PAN, &card.CardholderName, &card.BankName, &card.PaymentMethodType, &card.CardBrand, &card.ProductName, &card.LinkedPhoneNumber, &card.ExpMonth, &card.ExpYear, &card.Cvv, &card.CreatedAt, &card.UpdatedAt); err != nil {
+		if err := rows.Scan(&card.ID, &card.UserID, &card.PAN, &card.CardholderName, &card.BankName, &card.Email, &card.PaymentMethodType, &card.CardBrand, &card.ProductName, &card.LinkedPhoneNumber, &card.ExpMonth, &card.ExpYear, &card.Cvv, &card.TotalLimit, &card.AvailableLimit, &card.CreatedAt, &card.UpdatedAt); err != nil {
 			return nil, err
 		}
 		cards = append(cards, &card)
@@ -55,7 +55,7 @@ func NewSQLiteCardRepository(pool *sql.DB) *SQLiteCardRepository {
 // GetCardsLinkedToUserId retrieves all cards associated with a user ID.
 func (r *SQLiteCardRepository) GetCardsLinkedToUserId(ctx context.Context, userID string) ([]*Card, error) {
 	rows, err := r.pool.QueryContext(ctx,
-		"SELECT id, user_id, PAN, cardholder_name, bank_name, payment_method_type, card_brand, product_name, linked_phone_number, exp_month, exp_year, cvv, created_at, updated_at FROM cards WHERE user_id = ? ORDER BY created_at DESC",
+		"SELECT id, user_id, PAN, cardholder_name, bank_name, email, payment_method_type, card_brand, product_name, linked_phone_number, exp_month, exp_year, cvv, total_limit, available_limit, created_at, updated_at FROM cards WHERE user_id = ? ORDER BY created_at DESC",
 		userID,
 	)
 	if err != nil {
@@ -72,6 +72,7 @@ func (r *SQLiteCardRepository) GetCardsLinkedToUserId(ctx context.Context, userI
 			&card.PAN,
 			&card.CardholderName,
 			&card.BankName,
+			&card.Email,
 			&card.PaymentMethodType,
 			&card.CardBrand,
 			&card.ProductName,
@@ -79,6 +80,8 @@ func (r *SQLiteCardRepository) GetCardsLinkedToUserId(ctx context.Context, userI
 			&card.ExpMonth,
 			&card.ExpYear,
 			&card.Cvv,
+			&card.TotalLimit,
+			&card.AvailableLimit,
 			&card.CreatedAt,
 			&card.UpdatedAt,
 		)
@@ -102,12 +105,13 @@ func (r *SQLiteCardRepository) SaveCardUnderUserID(ctx context.Context, card *Ca
 	card.UpdatedAt = timeutil.Now()
 
 	_, err := r.pool.ExecContext(ctx,
-		"INSERT INTO cards (id, user_id, PAN, cardholder_name, bank_name, payment_method_type, card_brand, product_name, linked_phone_number, exp_month, exp_year, cvv, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		"INSERT INTO cards (id, user_id, PAN, cardholder_name, bank_name, email, payment_method_type, card_brand, product_name, linked_phone_number, exp_month, exp_year, cvv, total_limit, available_limit, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		card.ID,
 		card.UserID,
 		card.PAN,
 		card.CardholderName,
 		card.BankName,
+		card.Email,
 		card.PaymentMethodType,
 		card.CardBrand,
 		card.ProductName,
@@ -115,6 +119,8 @@ func (r *SQLiteCardRepository) SaveCardUnderUserID(ctx context.Context, card *Ca
 		card.ExpMonth,
 		card.ExpYear,
 		card.Cvv,
+		card.TotalLimit,
+		card.AvailableLimit,
 		card.CreatedAt,
 		card.UpdatedAt,
 	)
@@ -126,10 +132,11 @@ func (r *SQLiteCardRepository) UpdateCardDetails(ctx context.Context, card *Card
 	card.UpdatedAt = timeutil.Now()
 
 	_, err := r.pool.ExecContext(ctx,
-		"UPDATE cards SET PAN = ?, cardholder_name = ?, bank_name = ?, payment_method_type = ?, card_brand = ?, product_name = ?, linked_phone_number = ?, exp_month = ?, exp_year = ?, cvv = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+		"UPDATE cards SET PAN = ?, cardholder_name = ?, bank_name = ?, email = ?, payment_method_type = ?, card_brand = ?, product_name = ?, linked_phone_number = ?, exp_month = ?, exp_year = ?, cvv = ?, total_limit = ?, available_limit = ?, updated_at = ? WHERE id = ? AND user_id = ?",
 		card.PAN,
 		card.CardholderName,
 		card.BankName,
+		card.Email,
 		card.PaymentMethodType,
 		card.CardBrand,
 		card.ProductName,
@@ -137,6 +144,8 @@ func (r *SQLiteCardRepository) UpdateCardDetails(ctx context.Context, card *Card
 		card.ExpMonth,
 		card.ExpYear,
 		card.Cvv,
+		card.TotalLimit,
+		card.AvailableLimit,
 		card.UpdatedAt,
 		card.ID,
 		card.UserID,
@@ -177,7 +186,7 @@ func (r *SQLiteCardRepository) DeleteCard(ctx context.Context, cardID, userID st
 func (r *SQLiteCardRepository) GetCardByID(ctx context.Context, cardID string) (*Card, error) {
 	var card Card
 	err := r.pool.QueryRowContext(ctx,
-		"SELECT id, user_id, PAN, cardholder_name, bank_name, payment_method_type, card_brand, product_name, linked_phone_number, exp_month, exp_year, cvv, created_at, updated_at FROM cards WHERE id = ?",
+		"SELECT id, user_id, PAN, cardholder_name, bank_name, email, payment_method_type, card_brand, product_name, linked_phone_number, exp_month, exp_year, cvv, total_limit, available_limit, created_at, updated_at FROM cards WHERE id = ?",
 		cardID,
 	).Scan(
 		&card.ID,
@@ -185,6 +194,7 @@ func (r *SQLiteCardRepository) GetCardByID(ctx context.Context, cardID string) (
 		&card.PAN,
 		&card.CardholderName,
 		&card.BankName,
+		&card.Email,
 		&card.PaymentMethodType,
 		&card.CardBrand,
 		&card.ProductName,
@@ -192,6 +202,8 @@ func (r *SQLiteCardRepository) GetCardByID(ctx context.Context, cardID string) (
 		&card.LinkedPhoneNumber,
 		&card.ExpYear,
 		&card.Cvv,
+		&card.TotalLimit,
+		&card.AvailableLimit,
 		&card.CreatedAt,
 		&card.UpdatedAt,
 	)
@@ -210,7 +222,7 @@ func (r *SQLiteCardRepository) GetCardByID(ctx context.Context, cardID string) (
 func (r *SQLiteCardRepository) GetCardByPAN(ctx context.Context, pan string) (*Card, error) {
 	var card Card
 	err := r.pool.QueryRowContext(ctx,
-		"SELECT id, user_id, PAN, cardholder_name, bank_name, payment_method_type, card_brand, product_name, linked_phone_number, exp_month, exp_year, cvv, created_at, updated_at FROM cards WHERE PAN = ?",
+		"SELECT id, user_id, PAN, cardholder_name, bank_name, email, payment_method_type, card_brand, product_name, linked_phone_number, exp_month, exp_year, cvv, total_limit, available_limit, created_at, updated_at FROM cards WHERE PAN = ?",
 		pan,
 	).Scan(
 		&card.ID,
@@ -218,6 +230,7 @@ func (r *SQLiteCardRepository) GetCardByPAN(ctx context.Context, pan string) (*C
 		&card.PAN,
 		&card.CardholderName,
 		&card.BankName,
+		&card.Email,
 		&card.PaymentMethodType,
 		&card.CardBrand,
 		&card.ProductName,
@@ -225,6 +238,8 @@ func (r *SQLiteCardRepository) GetCardByPAN(ctx context.Context, pan string) (*C
 		&card.LinkedPhoneNumber,
 		&card.ExpYear,
 		&card.Cvv,
+		&card.TotalLimit,
+		&card.AvailableLimit,
 		&card.CreatedAt,
 		&card.UpdatedAt,
 	)

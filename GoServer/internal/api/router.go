@@ -28,6 +28,7 @@ func SetupRouter(authHandler *auth.AuthHandler, adminHandler *admin.Handler, car
 			auth.POST("/verify-authentication", authHandler.VerifyAuthentication)
 			auth.POST("/verify-token", authHandler.VerifyToken)
 			auth.GET("/generate-conditional-options", authHandler.GenerateConditionalOptions)
+			auth.GET("/google/callback", authHandler.GoogleOAuthCallback)
 
 			// Protected
 			protected := auth.Group("")
@@ -40,6 +41,9 @@ func SetupRouter(authHandler *auth.AuthHandler, adminHandler *admin.Handler, car
 				protected.DELETE("/authenticator/:id", authHandler.DeleteAuthenticator)
 				protected.PUT("/authenticator/:id/nickname", authHandler.UpdateAuthenticatorNickname)
 				protected.POST("/logout", authHandler.Logout)
+				protected.GET("/google/consent/:cardID", authHandler.GetGoogleConsentURL)
+				protected.DELETE("/google/consent/:cardID", authHandler.RevokeGoogleConsent)
+				protected.GET("/google/consents", authHandler.GetGoogleConsentCards)
 			}
 
 		}
@@ -52,6 +56,7 @@ func SetupRouter(authHandler *auth.AuthHandler, adminHandler *admin.Handler, car
 			cards.POST("", cardHandler.CreateCard)
 			cards.PUT("/:id", cardHandler.UpdateCard)
 			cards.DELETE("/:id", cardHandler.DeleteCard)
+			cards.POST("/:id/refresh", cardHandler.RefreshCard)
 		}
 
 		admin := apiGroup.Group("/admin")
@@ -63,6 +68,7 @@ func SetupRouter(authHandler *auth.AuthHandler, adminHandler *admin.Handler, car
 			approval := admin.Group("")
 			approval.Use(middleware.AdminOnly())
 			{
+				approval.GET("/refresh-runs", adminHandler.GetRefreshRuns)
 				approval.GET("/users", adminHandler.GetUsers)
 				approval.GET("/users/:id/details", adminHandler.GetUserDetails)
 				approval.PUT("/users/:id/approve", adminHandler.ApproveUser)

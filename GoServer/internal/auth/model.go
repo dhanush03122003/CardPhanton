@@ -1,9 +1,9 @@
 package auth
 
 import (
-    "time"
+	"time"
 
-    "github.com/golang-jwt/jwt/v5"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // Authenticator represents a WebAuthn authenticator in the domain
@@ -23,6 +23,13 @@ type Authenticator struct {
     LastUsedAt     *time.Time `json:"last_used_at"`
     CreatedAt      time.Time  `json:"created_at"`
     LastLocation   *string    `json:"last_location,omitempty"`
+}
+
+type GoogleConsentCard struct {
+    ID          string     `json:"id"`
+    PAN         string     `json:"pan"`
+    Gmail       *string    `json:"gmail"`
+    LastUpdated *time.Time `json:"last_updated"`
 }
 
 // SessionClaims represents short-lived session JWT claims used for WebAuthn cookie flow.

@@ -40,6 +40,10 @@ func (s *Service) GetAdminUsers(ctx context.Context) ([]user.User, error) {
 	return s.repo.GetAdminUsers(ctx)
 }
 
+func (s *Service) GetRefreshRuns(ctx context.Context) ([]RefreshRun, error) {
+	return s.repo.GetRefreshRuns(ctx)
+}
+
 func (s *Service) GetUsers(ctx context.Context, search string, limit, offset int) ([]user.User, int, error) {
 	return s.repo.GetUsers(ctx, search, limit, offset)
 }

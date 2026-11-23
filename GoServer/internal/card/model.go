@@ -25,6 +25,7 @@ type Card struct {
 	PAN               string            `json:"pan" db:"pan"`
 	CardholderName    string            `json:"cardholder_name" db:"cardholder_name"`
 	BankName          string            `json:"bank_name" db:"bank_name"`
+	Email             string            `json:"email" db:"email"`
 	PaymentMethodType PaymentMethodType `json:"payment_method_type" db:"payment_method_type"`
 	CardBrand         string            `json:"card_brand" db:"card_brand"`
 	ProductName       string            `json:"product_name" db:"product_name"`
@@ -32,6 +33,8 @@ type Card struct {
 	ExpMonth          int               `json:"exp_month" db:"exp_month"`
 	ExpYear           int               `json:"exp_year" db:"exp_year"`
 	Cvv               int               `json:"cvv" db:"cvv"`
+	TotalLimit        *float64          `json:"total_limit" db:"total_limit"`
+	AvailableLimit    *float64          `json:"available_limit" db:"available_limit"`
 	CreatedAt         time.Time         `json:"created_at" db:"created_at"`
 	UpdatedAt         time.Time         `json:"updated_at" db:"updated_at"`
 }

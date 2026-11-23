@@ -21,6 +21,7 @@ import (
 	"webauthn-server/internal/api/middleware"
 	"webauthn-server/internal/apierrors"
 	"webauthn-server/internal/audit"
+	"webauthn-server/internal/card"
 	"webauthn-server/internal/config"
 	"webauthn-server/internal/timeutil"
 	"webauthn-server/internal/user"
@@ -35,17 +36,19 @@ type TokenClaims struct {
 
 // AuthHandler handles WebAuthn authentication requests
 type AuthHandler struct {
-	repo      Repository
-	userRepo  user.UserRepository
-	audit     audit.Repository
-	webAuthn  *WebAuthnService
-	cfg       *config.Config
-	jwtSecret []byte
-	geoIP     *geoip2.Reader
+	repo       Repository
+	userRepo   user.UserRepository
+	audit      audit.Repository
+	cardRepo   card.Repository
+	webAuthn   *WebAuthnService
+	cfg        *config.Config
+	jwtSecret  []byte
+	geoIP      *geoip2.Reader
+	googleAuth *GoogleAuth
 }
 
 // NewAuthHandler creates a new auth handler
-func NewAuthHandler(repo Repository, userRepo user.UserRepository, auditRepo audit.Repository, webAuthn *WebAuthnService, cfg *config.Config) (*AuthHandler, error) {
+func NewAuthHandler(repo Repository, userRepo user.UserRepository, auditRepo audit.Repository, cardRepo card.Repository, webAuthn *WebAuthnService, cfg *config.Config) (*AuthHandler, error) {
 	jwtSecret := []byte(cfg.JWTSecret)
 
 	// Try to load GeoIP database if available
@@ -56,13 +59,15 @@ func NewAuthHandler(repo Repository, userRepo user.UserRepository, auditRepo aud
 	}
 
 	return &AuthHandler{
-		repo:      repo,
-		userRepo:  userRepo,
-		audit:     auditRepo,
-		webAuthn:  webAuthn,
-		cfg:       cfg,
-		jwtSecret: jwtSecret,
-		geoIP:     geoIP,
+		repo:       repo,
+		userRepo:   userRepo,
+		audit:      auditRepo,
+		cardRepo:   cardRepo,
+		webAuthn:   webAuthn,
+		cfg:        cfg,
+		jwtSecret:  jwtSecret,
+		geoIP:      geoIP,
+		googleAuth: newGoogleAuth(),
 	}, nil
 }
 
@@ -691,35 +696,58 @@ func (h *AuthHandler) GenerateAdditionalDeviceOptions(c *gin.Context) {
 // VerifyToken handles POST /verify-token
 func (h *AuthHandler) VerifyToken(c *gin.Context) {
 	var body struct {
-		Token string `json:"token" binding:"required"`
+		Token string `json:"token"`
 	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": ErrMsgTokenRequired})
+
+	tokenString := middleware.GetAuthToken(c)
+	if tokenString == "" {
+		// Keep accepting the legacy request-body token while preferring the
+		// HTTP-only cookie used by the current frontend.
+		_ = c.ShouldBindJSON(&body)
+		tokenString = body.Token
+	}
+	if tokenString == "" {
+		c.JSON(http.StatusOK, gin.H{
+			"isauthenticated": false,
+			"username":        "",
+		})
 		return
 	}
 
-	token, err := jwt.ParseWithClaims(body.Token, &TokenClaims{}, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &TokenClaims{}, func(token *jwt.Token) (interface{}, error) {
 		return h.jwtSecret, nil
 	})
 
 	if err != nil || !token.Valid {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": ErrMsgInvalidToken})
+		c.JSON(http.StatusOK, gin.H{
+			"isauthenticated": false,
+			"username":        "",
+		})
 		return
 	}
 
 	claims, ok := token.Claims.(*TokenClaims)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": ErrMsgInvalidTokenClaims})
+		c.JSON(http.StatusOK, gin.H{
+			"isauthenticated": false,
+			"username":        "",
+		})
 		return
 	}
 
 	userRow, err := h.userRepo.FindUserByUsername(c.Request.Context(), claims.Username)
 	if err != nil || userRow == nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": ErrMsgUserNotFound})
+		c.JSON(http.StatusOK, gin.H{
+			"isauthenticated": false,
+			"username":        "",
+		})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"user": gin.H{"id": userRow.ID, "username": userRow.Username}})
+	c.JSON(http.StatusOK, gin.H{
+		"isauthenticated": true,
+		"username":        userRow.Username,
+	})
 }
 
 // GenerateConditionalOptions handles GET /generate-conditional-options

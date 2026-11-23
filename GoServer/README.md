@@ -4,7 +4,7 @@ Go backend for CardPhanton. It provides WebAuthn/passkey registration and login,
 
 ## Stack
 
-- Go `1.25`
+- Go `1.26`
 - Gin HTTP router
 - WebAuthn via `github.com/go-webauthn/webauthn`
 - JWT via `github.com/golang-jwt/jwt/v5`
@@ -13,7 +13,7 @@ Go backend for CardPhanton. It provides WebAuthn/passkey registration and login,
 
 ## Requirements
 
-- Go 1.25 or a compatible toolchain
+- Go 1.26 or a compatible toolchain
 - A WebAuthn-capable browser/device
 - Write access to the server directory for SQLite data
 
@@ -59,6 +59,31 @@ Copy `.env.example` to `.env` and change values as needed:
 | `ADMIN_USERNAMES`         | empty                      | Comma-separated, case-insensitive usernames created as `ADMIN`.        |
 
 If `GeoLite2-City.mmdb` is present in the working directory, authentication audit entries may include a location. Without it, location tracking is disabled and authentication still works.
+
+## Background Credit-Limit Jobs
+
+The `internal/jobs` module contains a Temporal workflow that searches recent Gmail messages, routes relevant emails through Gemini or Ollama, extracts card-limit events, and saves non-nil limit values through an injected SQL repository.
+
+Configure the worker with:
+
+| Variable            | Purpose                                                   |
+| ------------------- | --------------------------------------------------------- |
+| `LLM_PROVIDER`      | `ollama` or `gemini`.                                     |
+| `OLLAMA_BASE_URL`   | Ollama server URL, normally `http://localhost:11434`.     |
+| `OLLAMA_MODEL`      | Local model name, such as `llama3.2`.                     |
+| `GEMINI_API_KEY`    | Gemini API key; keep it out of source control.            |
+| `GEMINI_MODEL`      | Gemini model name, such as `gemini-2.0-flash`.            |
+| `IMAP_HOST`         | IMAP TLS endpoint, normally `imap.gmail.com:993`.         |
+| `IMAP_APP_PASSWORD` | Gmail app password; do not use a normal account password. |
+| `TEMPORAL_ADDRESS`  | Temporal frontend address, normally `localhost:7233`.     |
+
+The Temporal task queue is `credit-limit-task-queue`. The normal HTTP server process starts both the API and the Temporal worker. Start it from `GoServer`:
+
+```bash
+go run ./cmd/myserver
+```
+
+The embedded worker registers `temporal.LimitExtractionWorkflow` and all methods on `temporal.JobActivities`. It uses 2 minutes for IMAP, 5 minutes for LLM activities with a 60-second retry interval cap, and 10 seconds for database updates. A Temporal server must be running at `TEMPORAL_ADDRESS` before refreshing a card.
 
 ## Authentication
 
@@ -123,6 +148,8 @@ All card routes require authentication. `GET /cards` returns all cards for authe
 | `PUT`    | `/cards/:id`  | Replaces an owned card.                                |
 | `DELETE` | `/cards/:id`  | Deletes an owned card.                                 |
 
+`POST /cards/:id/refresh` starts an asynchronous Temporal credit-limit workflow for an owned card. It returns `202 Accepted` with `card_id`, `workflow_id`, and `run_id`; card values are updated later by the worker. The HTTP server returns `503` when the Temporal client is unavailable.
+
 Create and update bodies use:
 
 ```json
@@ -130,17 +157,20 @@ Create and update bodies use:
   "pan": "4111111111111111",
   "cardholder_name": "John Doe",
   "bank_name": "Example Bank",
+  "email": "alerts@example.com",
   "payment_method_type": "Credit",
   "card_brand": "Visa",
   "product_name": "Rewards",
   "linked_phone_number": "9876543210",
   "exp_month": 12,
   "exp_year": 2030,
-  "cvv": 123
+  "cvv": 123,
+  "total_limit": 100000.5,
+  "available_limit": 75000.25
 }
 ```
 
-Validation requires a supported PAN pattern, `Credit` or `Debit` payment type, a brand of `Visa`, `Mastercard`, `American Express`, `Discover`, `RuPay`, or `Other`, a 10-digit phone number beginning with 6-9, a valid non-expired month/year (maximum 20 years ahead), and a three-digit CVV. Duplicate PANs return HTTP `409`. Card responses include all request fields plus `id`, `user_id`, `created_at`, and `updated_at`.
+Validation requires a supported PAN pattern, `Credit` or `Debit` payment type, a brand of `Visa`, `Mastercard`, `American Express`, `Discover`, `RuPay`, or `Other`, a 10-digit phone number beginning with 6-9, a valid non-expired month/year (maximum 20 years ahead), and a three-digit CVV. `email` is optional; `total_limit` and `available_limit` are optional non-negative floating-point values and are stored as nullable fields. Duplicate PANs return HTTP `409`. Card responses include all request fields plus `id`, `user_id`, `created_at`, and `updated_at`.
 
 ### Administrator routes
 

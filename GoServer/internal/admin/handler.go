@@ -40,6 +40,19 @@ func (h *Handler) GetAdmins(c *gin.Context) {
 	c.JSON(http.StatusOK, users)
 }
 
+// GetRefreshRuns returns card refresh workflow runs for administrators.
+func (h *Handler) GetRefreshRuns(c *gin.Context) {
+	runs, err := h.service.GetRefreshRuns(c.Request.Context())
+	if err != nil {
+		apierrors.Error(c, http.StatusInternalServerError, "REFRESH_RUNS_FETCH_FAILED", "Refresh Runs Fetch Failed", "The refresh runs could not be loaded.")
+		return
+	}
+	if runs == nil {
+		runs = []RefreshRun{}
+	}
+	c.JSON(http.StatusOK, gin.H{"runs": runs})
+}
+
 // GetUsers returns searchable, paginated normal users.
 func (h *Handler) GetUsers(c *gin.Context) {
 	page := queryInt(c, "page", 1)

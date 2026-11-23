@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { startRegistration } from "@simplewebauthn/browser";
 import GlobalCards from "./GlobalCards";
 import MyCards from "./MyCards";
+import Consents from "./Consents";
+import RefreshRuns from "./RefreshRuns";
 import UserManagement from "./UserManagement";
 
 function Dashboard({ user }) {
@@ -10,7 +12,10 @@ function Dashboard({ user }) {
   const [loading, setLoading] = useState(true);
   const [registering, setRegistering] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [activeTab, setActiveTab] = useState("security");
+  const [activeTab, setActiveTab] = useState(() => {
+    const requestedTab = new URLSearchParams(window.location.search).get("tab");
+    return requestedTab || "security";
+  });
 
   const fetchAuthenticators = async () => {
     try {
@@ -183,13 +188,27 @@ function Dashboard({ user }) {
           >
             My Cards
           </button>
+          <button
+            onClick={() => setActiveTab("consents")}
+            className={`min-h-11 shrink-0 whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium ${activeTab === "consents" ? "border-slate-900 text-slate-900" : "border-transparent text-gray-500"}`}
+          >
+            Consents
+          </button>
           {isAdmin && (
-            <button
-              onClick={() => setActiveTab("management")}
-              className={`min-h-11 shrink-0 whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium ${activeTab === "management" ? "border-slate-900 text-slate-900" : "border-transparent text-gray-500"}`}
-            >
-              User Management
-            </button>
+            <>
+              <button
+                onClick={() => setActiveTab("management")}
+                className={`min-h-11 shrink-0 whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium ${activeTab === "management" ? "border-slate-900 text-slate-900" : "border-transparent text-gray-500"}`}
+              >
+                User Management
+              </button>
+              <button
+                onClick={() => setActiveTab("refresh-runs")}
+                className={`min-h-11 shrink-0 whitespace-nowrap border-b-2 px-4 py-2.5 text-sm font-medium ${activeTab === "refresh-runs" ? "border-slate-900 text-slate-900" : "border-transparent text-gray-500"}`}
+              >
+                Refresh Runs
+              </button>
+            </>
           )}
           <button
             onClick={() => setActiveTab("all-cards")}
@@ -200,6 +219,10 @@ function Dashboard({ user }) {
         </nav>
         {activeTab === "my-cards" ? (
           <MyCards />
+        ) : activeTab === "consents" ? (
+          <Consents />
+        ) : activeTab === "refresh-runs" && isAdmin ? (
+          <RefreshRuns />
         ) : activeTab === "all-cards" ? (
           <GlobalCards />
         ) : activeTab === "management" && isAdmin ? (

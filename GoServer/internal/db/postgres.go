@@ -203,6 +203,39 @@ func (db *DB) InitializeDatabase(ctx context.Context) error {
 		}
 	}
 
+	cardColumns := map[string]string{
+		"email":           "ALTER TABLE cards ADD COLUMN email TEXT",
+		"total_limit":     "ALTER TABLE cards ADD COLUMN total_limit REAL",
+		"available_limit": "ALTER TABLE cards ADD COLUMN available_limit REAL",
+	}
+	rows, err = db.pool.QueryContext(ctx, "PRAGMA table_info(cards)")
+	if err != nil {
+		return fmt.Errorf("failed to inspect card optional columns: %w", err)
+	}
+	existingCardColumns := make(map[string]bool)
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			rows.Close()
+			return fmt.Errorf("failed to inspect card optional columns: %w", err)
+		}
+		existingCardColumns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("failed to read card optional columns: %w", err)
+	}
+	rows.Close()
+	for column, statement := range cardColumns {
+		if !existingCardColumns[column] {
+			if _, err := db.pool.ExecContext(ctx, statement); err != nil {
+				return fmt.Errorf("failed to add cards %s column: %w", column, err)
+			}
+		}
+	}
+
 	rows, err = db.pool.QueryContext(ctx, "PRAGMA table_info(admin_audit_logs)")
 	if err != nil {
 		return fmt.Errorf("failed to inspect admin audit columns: %w", err)

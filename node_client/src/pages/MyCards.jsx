@@ -6,6 +6,7 @@ const emptyCard = {
   pan: "",
   cardholder_name: "",
   bank_name: "",
+  email: "",
   product_name: "",
   payment_method_type: "Credit",
   card_brand: "Visa",
@@ -13,6 +14,8 @@ const emptyCard = {
   exp_month: "",
   exp_year: "",
   cvv: "",
+  total_limit: "",
+  available_limit: "",
 };
 
 const currentYear = new Date().getFullYear();
@@ -23,6 +26,8 @@ const cardNumberPattern =
 const phonePattern = /^[6-9]\d{9}$/;
 const expiryMonthPattern = /^(0[1-9]|1[0-2])$/;
 const expiryYearPattern = /^\d{4}$/;
+const optionalLimitPattern = /^\d+(\.\d+)?$/;
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const integerFieldLimits = {
   pan: 16,
   linked_phone_number: 10,
@@ -42,6 +47,8 @@ function validateCardForm(card) {
   const expMonth = Number(expiryMonth);
   const expYear = Number(expiryYear);
   const cvv = String(card.cvv ?? "").trim();
+  const totalLimit = String(card.total_limit ?? "").trim();
+  const availableLimit = String(card.available_limit ?? "").trim();
 
   if (!cardNumberPattern.test(pan)) {
     return "Enter a valid 13- or 16-digit credit card number.";
@@ -51,6 +58,10 @@ function validateCardForm(card) {
   }
   if (!bankName || bankName.length > 100) {
     return "Bank name is required and must be 100 characters or fewer.";
+  }
+  const email = String(card.email ?? "").trim();
+  if (email.length > 254 || (email && !emailPattern.test(email))) {
+    return "Enter a valid email address with 254 characters or fewer.";
   }
   if (productName.length > 100) {
     return "Product name must be 100 characters or fewer.";
@@ -74,6 +85,12 @@ function validateCardForm(card) {
   if (!/^\d{3}$/.test(cvv)) {
     return "CVV must be exactly 3 digits.";
   }
+  if (
+    (totalLimit && !optionalLimitPattern.test(totalLimit)) ||
+    (availableLimit && !optionalLimitPattern.test(availableLimit))
+  ) {
+    return "Limits must be valid non-negative numbers.";
+  }
   return "";
 }
 
@@ -82,6 +99,7 @@ function getCardFormValues(card = emptyCard) {
     pan: String(card.pan ?? ""),
     cardholder_name: String(card.cardholder_name ?? ""),
     bank_name: String(card.bank_name ?? ""),
+    email: String(card.email ?? ""),
     product_name: String(card.product_name ?? ""),
     payment_method_type: String(card.payment_method_type ?? "Credit"),
     card_brand: String(card.card_brand ?? "Visa"),
@@ -92,6 +110,9 @@ function getCardFormValues(card = emptyCard) {
         : String(card.exp_month).padStart(2, "0"),
     exp_year: String(card.exp_year ?? ""),
     cvv: String(card.cvv ?? ""),
+    total_limit: card.total_limit == null ? "" : String(card.total_limit),
+    available_limit:
+      card.available_limit == null ? "" : String(card.available_limit),
   };
 }
 
@@ -103,6 +124,7 @@ function MyCards() {
   const [formOpen, setFormOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [refreshingCardId, setRefreshingCardId] = useState(null);
   const [error, setError] = useState("");
   const showToast = useToast();
 
@@ -125,7 +147,10 @@ function MyCards() {
   const updateField = (event) => {
     const { name, value } = event.target;
     const limit = integerFieldLimits[name];
-    const nextValue = limit ? value.replace(/\D/g, "").slice(0, limit) : value;
+    let nextValue = limit ? value.replace(/\D/g, "").slice(0, limit) : value;
+    if (name === "total_limit" || name === "available_limit") {
+      nextValue = value.replace(/[^0-9.]/g, "").replace(/(\..*)\./g, "$1");
+    }
 
     setForm((current) => ({
       ...current,
@@ -178,6 +203,11 @@ function MyCards() {
           exp_month: Number(form.exp_month),
           exp_year: Number(form.exp_year),
           cvv: Number(form.cvv),
+          email: form.email.trim() || null,
+          total_limit:
+            form.total_limit === "" ? null : Number(form.total_limit),
+          available_limit:
+            form.available_limit === "" ? null : Number(form.available_limit),
         }),
       });
       await loadCards();
@@ -203,6 +233,29 @@ function MyCards() {
     } catch (requestError) {
       setError(requestError.message);
       showToast(requestError.message, "error");
+    }
+  };
+
+  const refreshCard = async (card) => {
+    setRefreshingCardId(card.id);
+    setError("");
+    try {
+      const refreshResult = await apiRequest(`/api/cards/${card.id}/refresh`, {
+        method: "POST",
+      });
+      if (refreshResult?.card_id) {
+        setCards((current) =>
+          current.map((item) =>
+            item.id === card.id ? { ...item, id: refreshResult.card_id } : item,
+          ),
+        );
+      }
+      showToast("Credit-limit refresh started.", "success");
+    } catch (requestError) {
+      setError(requestError.message);
+      showToast(requestError.message, "error");
+    } finally {
+      setRefreshingCardId(null);
     }
   };
 
@@ -232,6 +285,14 @@ function MyCards() {
       placeholder: "Axis Bank",
       maxLength: 100,
       required: true,
+    },
+    {
+      name: "email",
+      label: "Email (optional)",
+      type: "email",
+      placeholder: "card-alerts@example.com",
+      maxLength: 254,
+      required: false,
     },
     {
       name: "product_name",
@@ -281,6 +342,22 @@ function MyCards() {
       pattern: "[0-9]{3}",
       required: true,
     },
+    {
+      name: "total_limit",
+      label: "Total Limit (optional)",
+      type: "text",
+      placeholder: "e.g. 100000.50",
+      inputMode: "decimal",
+      required: false,
+    },
+    {
+      name: "available_limit",
+      label: "Available Limit (optional)",
+      type: "text",
+      placeholder: "e.g. 75000.25",
+      inputMode: "decimal",
+      required: false,
+    },
   ];
 
   return (
@@ -326,6 +403,7 @@ function MyCards() {
                 <th className='px-3 py-3'>Last 4</th>
                 <th className='px-3 py-3'>Expiry</th>
                 <th className='px-3 py-3'>Brand</th>
+                <th className='px-3 py-3'>Limits</th>
                 <th className='px-3 py-3 text-right'>Actions</th>
               </tr>
             </thead>
@@ -353,7 +431,26 @@ function MyCards() {
                   <td className='px-3 py-4 text-gray-700 dark:text-slate-300'>
                     {card.card_brand}
                   </td>
+                  <td className='px-3 py-4 text-xs text-gray-700 dark:text-slate-300'>
+                    <div>Total: {card.total_limit ?? "Not set"}</div>
+                    <div>Available: {card.available_limit ?? "Not set"}</div>
+                    {card.email && (
+                      <div className='mt-1 max-w-40 truncate text-gray-500'>
+                        {card.email}
+                      </div>
+                    )}
+                  </td>
                   <td className='px-3 py-4 text-right'>
+                    <button
+                      type='button'
+                      onClick={() => refreshCard(card)}
+                      disabled={refreshingCardId === card.id}
+                      className='mr-2 min-h-11 px-2 text-xs font-medium text-blue-600 hover:text-blue-800 disabled:cursor-not-allowed disabled:opacity-50'
+                    >
+                      {refreshingCardId === card.id
+                        ? "Refreshing..."
+                        : "Refresh"}
+                    </button>
                     <button
                       type='button'
                       onClick={() => openEdit(card)}

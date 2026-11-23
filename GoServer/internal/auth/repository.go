@@ -20,6 +20,9 @@ type Repository interface {
 	GetAuthenticatorCount(ctx context.Context, userID string) (int, error)
 	DeleteAuthenticatorByID(ctx context.Context, authID, userID string) (bool, error)
 	UpdateAuthenticatorNickname(ctx context.Context, authID, userID, newNickname string) error
+	SaveGoogleOAuthToken(ctx context.Context, userID, cardID, gmail, refreshToken string) error
+	DeleteGoogleOAuthToken(ctx context.Context, userID, cardID string) error
+	GetGoogleConsentCards(ctx context.Context, userID string) ([]GoogleConsentCard, error)
 }
 
 // GetAuthenticatorCount returns the number of passkeys owned by a user.
@@ -33,6 +36,59 @@ func (r *SQLiteRepository) GetAuthenticatorCount(ctx context.Context, userID str
 func (r *SQLiteRepository) DeleteAuthenticatorsByUserID(ctx context.Context, userID string) error {
 	_, err := r.pool.ExecContext(ctx, "DELETE FROM authenticators WHERE user_id = ?", userID)
 	return err
+}
+
+func (r *SQLiteRepository) SaveGoogleOAuthToken(ctx context.Context, userID, cardID, gmail, refreshToken string) error {
+	_, err := r.pool.ExecContext(ctx, `
+		INSERT INTO google_oauth_tokens (user_id, card_id, gmail, refresh_token, last_updated)
+		VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(user_id, card_id) DO UPDATE SET
+			gmail = excluded.gmail,
+			refresh_token = excluded.refresh_token,
+			last_updated = CURRENT_TIMESTAMP
+	`, userID, cardID, gmail, refreshToken)
+	return err
+}
+
+func (r *SQLiteRepository) DeleteGoogleOAuthToken(ctx context.Context, userID, cardID string) error {
+	_, err := r.pool.ExecContext(ctx,
+		"DELETE FROM google_oauth_tokens WHERE user_id = ? AND card_id = ?",
+		userID,
+		cardID,
+	)
+	return err
+}
+
+func (r *SQLiteRepository) GetGoogleConsentCards(ctx context.Context, userID string) ([]GoogleConsentCard, error) {
+	rows, err := r.pool.QueryContext(ctx, `
+		SELECT c.id, c.PAN, g.gmail, g.last_updated
+		FROM cards c
+		LEFT JOIN google_oauth_tokens g ON g.card_id = c.id AND g.user_id = c.user_id
+		WHERE c.user_id = ?
+		ORDER BY c.created_at DESC
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var cards []GoogleConsentCard
+	for rows.Next() {
+		var card GoogleConsentCard
+		var gmail sql.NullString
+		var lastUpdated sql.NullTime
+		if err := rows.Scan(&card.ID, &card.PAN, &gmail, &lastUpdated); err != nil {
+			return nil, err
+		}
+		if gmail.Valid {
+			card.Gmail = &gmail.String
+		}
+		if lastUpdated.Valid {
+			card.LastUpdated = &lastUpdated.Time
+		}
+		cards = append(cards, card)
+	}
+	return cards, rows.Err()
 }
 
 // SQLiteRepository is a concrete auth repository backed by database/sql.
